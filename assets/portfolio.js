@@ -1,28 +1,63 @@
 /* JNV MSD alumni year page loader.
-   Asks the API for this batch (live data), falls back to the copy this browser saved last time,
-   then to the data pasted in the post. Then starts the page (portfolioz_core.js). */
+   Asks the API for this batch. The browser keeps the last copy together with its version number and asks
+   "has it changed?": if not, the saved copy is used and almost nothing is downloaded. If the API is down
+   it falls back to the saved copy, then to the data pasted in the post. Then it starts the page (portfolioz_core.js). */
 (function () {
   var API = window.JNV_API || "https://api.jnvmurshidabad.workers.dev"; // set window.JNV_API before this script to point elsewhere
-  var TOKEN_KEY = "jnv-id-token";
+  window.JNV_API = API;
+  var TOKEN_KEY = "jnv-id-token";   // an older one hour Google sign-in
+  var SESSION_KEY = "jnv-session";  // the 30 day sign-in
   var me = document.currentScript;
   var base = me && me.src ? me.src.replace(/[^\/]*$/, "") : "";
 
   var year = (typeof BATCH !== "undefined" && BATCH) || (typeof all !== "undefined" && all[0] && all[0].Batch) || ((location.pathname.match(/(\d{4})/) || [])[1]);
   var cacheKey = "jnv-cache-" + year;
 
-  function token() {
+  /* ---------- who is signed in ---------- */
+  function readSession() {
+    try { var s = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); return s && s.t ? s : null; } catch (e) { return null; }
+  }
+  function googleToken() {
     try {
       var t = localStorage.getItem(TOKEN_KEY);
       var c = t && JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
       return c && c.exp * 1000 > Date.now() + 60000 ? t : null;
     } catch (e) { return null; }
   }
+  function token() { var s = readSession(); return s ? s.t : googleToken(); }
+  function clearSignIn() { try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+  // someone who signed in before the 30 day sign-in existed: quietly swap their hour-long token for a session
+  function upgrade(g) {
+    fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + g } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j) { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: j.session, user: j.user })); localStorage.removeItem(TOKEN_KEY); } })
+      .catch(function () {});
+  }
 
-  function fetchBatch(level, tok) {
+  /* ---------- the batch data and its saved copy ---------- */
+  function readCache() {
+    try { var c = JSON.parse(localStorage.getItem(cacheKey)); return c && c.v && c.entries ? c : null; } catch (e) { return null; }
+  }
+  function saveCache(j) {
+    if (!j.ver) return;
+    try { localStorage.setItem(cacheKey, JSON.stringify({ v: j.ver, entries: j.entries || [], slides: j.slides || [] })); } catch (e) {}
+  }
+
+  function fetchBatch(level, tok, v) {
     var ctl = window.AbortController ? new AbortController() : null;
     var timer = ctl ? setTimeout(function () { ctl.abort(); }, 6000) : null;
-    return fetch(API + "/api/batch/" + year + "?level=" + level, { headers: tok ? { Authorization: "Bearer " + tok } : {}, signal: ctl ? ctl.signal : undefined })
+    return fetch(API + "/api/batch/" + year + "?level=" + level + (v ? "&v=" + v : ""), { headers: tok ? { Authorization: "Bearer " + tok } : {}, signal: ctl ? ctl.signal : undefined })
       .then(function (r) { if (timer) clearTimeout(timer); if (!r.ok) throw new Error(r.status); return r.json(); });
+  }
+
+  // the public version: ask with the saved copy's version number, and keep the saved copy if nothing changed
+  function publicBatch() {
+    var c = readCache();
+    return fetchBatch("public", null, c && c.v).then(function (j) {
+      if (j.unchanged && c) return { j: { entries: c.entries, slides: c.slides, ver: c.v }, level: "public" };
+      saveCache(j);
+      return { j: j, level: "public" };
+    });
   }
 
   function use(list, level) {
@@ -46,27 +81,24 @@
   if (!year) return startPage();
   var tok = token();
   window.JNV_SIGNED = !!tok;
-  // signed-in core members and admins get the full version; everyone else the public one
+  // signed-in core members and admins get the full version (never saved); everyone else the public one
   var first = tok
-    ? fetchBatch("full", tok).then(function (j) { return { j: j, level: "full" }; }, function () { return fetchBatch("public").then(function (j) { return { j: j, level: "public" }; }); })
-    : fetchBatch("public").then(function (j) { return { j: j, level: "public" }; });
+    ? fetchBatch("full", tok).then(function (j) { return { j: j, level: "full" }; }, function () { return publicBatch(); })
+    : publicBatch();
 
   first.then(function (r) {
     window.JNV_SLIDES = r.j.slides || []; // photos approved for the batch slider
-    if (r.level === "public") { try { localStorage.setItem("jnv-slides-" + year, JSON.stringify(window.JNV_SLIDES)); } catch (e) {} }
-    if (r.j.entries && r.j.entries.length) {
-      use(r.j.entries, r.level);
-      if (r.level === "public") { try { localStorage.setItem(cacheKey, JSON.stringify(r.j.entries)); } catch (e) {} }
-    }
+    if (r.j.entries && r.j.entries.length) use(r.j.entries, r.level);
   }).catch(function () {
-    try { var c = JSON.parse(localStorage.getItem(cacheKey)); if (c && c.length) use(c, "public"); } catch (e) {}
-    try { window.JNV_SLIDES = JSON.parse(localStorage.getItem("jnv-slides-" + year)) || []; } catch (e) { window.JNV_SLIDES = []; }
+    var c = readCache();
+    if (c && c.entries.length) use(c.entries, "public");
+    window.JNV_SLIDES = c ? c.slides || [] : [];
   }).then(function () {
     // who is signed in (used to mark their own profile and show Edit)
     if (!tok) return;
     return fetch(API + "/api/me", { headers: { Authorization: "Bearer " + tok } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (j) window.JNV_ME = j; })
+      .then(function (r) { if (r.status === 401) { clearSignIn(); window.JNV_SIGNED = false; return null; } return r.ok ? r.json() : null; })
+      .then(function (j) { if (j) { window.JNV_ME = j; if (!readSession()) upgrade(tok); } })
       .catch(function () {});
   }).then(startPage);
 })();

@@ -5,8 +5,9 @@
   if (!root) return;
   var API = (root.dataset.api || "").replace(/\/+$/, "");
   var CLIENT = root.dataset.client || "";
-  var IMAGES = root.dataset.images || "https://spdfedu.github.io/JNV/images/";
-  var TOKEN_KEY = "jnv-id-token";
+  var IMAGES = root.dataset.images || "https://spdfedu.github.io/jnv/images/";
+  var TOKEN_KEY = "jnv-id-token";   // an older one hour Google sign-in
+  var SESSION_KEY = "jnv-session";  // the 30 day sign-in
 
   var HOUSES = ["Aravali", "Nilgiri", "Shivalik", "Udaigiri"];
   var BLOOD = ["A +ve", "A -ve", "B +ve", "B -ve", "AB +ve", "AB -ve", "O +ve", "O -ve"];
@@ -200,13 +201,24 @@
 
   /* ---------- token ---------- */
   function savedToken() {
+    // the 30 day session first (the server says when it ends), then an older Google sign-in that is still valid
+    var ss = null; try { ss = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) {}
+    if (ss && ss.t) return { raw: ss.t, claims: ss.user || {}, session: true };
     var t = null;
     try { t = localStorage.getItem(TOKEN_KEY); } catch (e) {}
     var c = t && decode(t);
     return c && c.exp * 1000 > Date.now() + 60000 ? { raw: t, claims: c } : null;
   }
   function storeToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
-  function dropToken() { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+  function storeSession(r) { try { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: r.session, user: r.user })); localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+  function dropToken() { try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+  // swap an hour-long Google sign-in for a 30 day session; resolves to the new token, or null if that is not possible
+  function makeSession(googleToken) {
+    return fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + googleToken } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) { if (!r) return null; storeSession(r); return { raw: r.session, claims: r.user, session: true }; })
+      .catch(function () { return null; });
+  }
 
   /* ---------- API ---------- */
   function api(path, opts) {
@@ -252,12 +264,16 @@
   function onCredential(resp) {
     var c = decode(resp.credential);
     if (!c) return;
-    state.token = { raw: resp.credential, claims: c };
-    storeToken(resp.credential);
-    load();
+    makeSession(resp.credential).then(function (t) {
+      if (t) { state.token = t; }
+      else { state.token = { raw: resp.credential, claims: c }; storeToken(resp.credential); } // fall back to the one hour sign-in
+      load();
+    });
   }
 
   function signOut(note) {
+    // end the session on the server too
+    if (state.token && state.token.session) { try { fetch(API + "/api/session", { method: "DELETE", headers: { Authorization: "Bearer " + state.token.raw } }).catch(function () {}); } catch (e) {} }
     dropToken();
     state.token = null; state.me = null; state.editing = false; state.photoBlob = null;
     if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
@@ -640,5 +656,8 @@
   if (!API || !CLIENT) return fail("This page is missing its settings (data-api and data-client).");
   var t = savedToken();
   try { hadSession = !t && !!localStorage.getItem(TOKEN_KEY); } catch (e) {}
-  if (t) { state.token = t; load(); } else renderSignedOut("");
+  if (t) {
+    state.token = t; load();
+    if (!t.session) makeSession(t.raw).then(function (n) { if (n) state.token = n; }); // quietly move an older sign-in to a 30 day session
+  } else renderSignedOut("");
 })();

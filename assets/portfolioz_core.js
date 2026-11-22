@@ -47,7 +47,7 @@ var coverBox = document.querySelector(".tc");
 if (!coverBox) {
   coverBox = document.createElement("div");
   coverBox.className = "tc";
-  coverBox.innerHTML = `<img alt="Batch ${xii}" src="https://spdfedu.github.io/JNV/images/cover/${xii}.jpg">`;
+  coverBox.innerHTML = `<img alt="Batch ${xii}" src="https://spdfedu.github.io/jnv/images/cover/${xii}.jpg">`;
 }
 upper.querySelector(".bc-photo").append(coverBox);
 if (window.JNV_SLIDES && window.JNV_SLIDES.length) makeSlider(upper.querySelector(".bc-photo"), coverBox);
@@ -63,8 +63,7 @@ vesselBox = document.createElement("div")
 vesselBox.id = "vessel_box"
 main.append(vesselBox)
 insertProfiles = document.getElementById("vessel_box");
-base = "https://spdfedu.github.io/"
-git = base +"JNV/"
+git = "https://spdfedu.github.io/jnv/"
 giti = git+"images/"
 
 all.sort((a, b) => {
@@ -509,7 +508,7 @@ function share(key) {
 function withVcard(cb) {
   if (window.vCard) return cb();
   var sc = document.createElement("script");
-  sc.src = base + "jnv/assets/vcard.js";
+  sc.src = git + "vcard.js";
   sc.onload = cb;
   sc.onerror = function() { alert("Could not load the contact helper. Please try again."); };
   document.head.appendChild(sc);
@@ -620,8 +619,12 @@ function jnvSignIn(btn) {
           .then(function(j) {
             var keep = window.JNV_ME; window.JNV_ME = j;
             if (j && isOwn(ele)) {
-              try { localStorage.setItem("jnv-id-token", r.credential); } catch (e) {}
-              location.reload(); // same page and profile, now signed in
+              // trade the one hour Google sign-in for a 30 day session, then reload on the same profile
+              var saveHour = function() { try { localStorage.setItem("jnv-id-token", r.credential); } catch (e) {} };
+              fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + r.credential } })
+                .then(function(x) { return x.ok ? x.json() : null; })
+                .then(function(sx) { try { if (sx) localStorage.setItem("jnv-session", JSON.stringify({ t: sx.session, user: sx.user })); else saveHour(); } catch (e) {} location.reload(); })
+                .catch(function() { saveHour(); location.reload(); });
             } else {
               window.JNV_ME = keep;
               err.textContent = "That Gmail is not linked to this profile. Please use " + hint + ".";

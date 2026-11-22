@@ -4,7 +4,7 @@
   if (!root) return;
   var API = (root.dataset.api || "").replace(/\/+$/, "");
   var CLIENT = root.dataset.client || "";
-  var IMAGES = root.dataset.images || "https://spdfedu.github.io/JNV/images/";
+  var IMAGES = root.dataset.images || "https://spdfedu.github.io/jnv/images/";
   var TOKEN_KEY = "jnv-id-token"; // same key as the login page, so signing in there also signs you in here
 
   var HOUSES = ["Aravali", "Nilgiri", "Shivalik", "Udaigiri"];
@@ -50,10 +50,20 @@
   function toast(t, bad) { st.note = t; st.noteBad = !!bad; var n = document.getElementById("ja-toast"); if (n) { n.textContent = t; n.className = "ja-toast " + (bad ? "ja-bad" : "ja-ok"); n.hidden = !t; } }
 
   /* ---------- token and API ---------- */
+  var SESSION_KEY = "jnv-session"; // the 30 day sign-in, shared with the login page
   function savedToken() {
+    var ss = null; try { ss = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) {}
+    if (ss && ss.t) return { raw: ss.t, claims: ss.user || {}, session: true };
     var t = null; try { t = localStorage.getItem(TOKEN_KEY); } catch (e) {}
     var c = t && decode(t);
     return c && c.exp * 1000 > Date.now() + 60000 ? { raw: t, claims: c } : null;
+  }
+  // swap an hour-long Google sign-in for a 30 day session (null if that is not possible)
+  function makeSession(googleToken) {
+    return fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + googleToken } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) { if (!r) return null; try { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: r.session, user: r.user })); localStorage.removeItem(TOKEN_KEY); } catch (e) {} return { raw: r.session, claims: r.user, session: true }; })
+      .catch(function () { return null; });
   }
   function api(path, opts) {
     opts = opts || {};
@@ -77,11 +87,11 @@
     var btn = h("div", { class: "ja-gbtn" });
     show(h("div", { class: "ja-card ja-center" }, h("h2", { text: "Admin" }), msg ? h("p", { class: "ja-msg ja-warn", text: msg }) : h("p", { class: "ja-muted", text: "Sign in with the admin Gmail." }), btn));
     whenGoogle(function () {
-      google.accounts.id.initialize({ client_id: CLIENT, callback: function (r) { var c = decode(r.credential); if (!c) return; st.token = { raw: r.credential, claims: c }; try { localStorage.setItem(TOKEN_KEY, r.credential); } catch (e) {} load(); }, auto_select: true });
+      google.accounts.id.initialize({ client_id: CLIENT, callback: function (r) { var c = decode(r.credential); if (!c) return; makeSession(r.credential).then(function (t) { if (t) st.token = t; else { st.token = { raw: r.credential, claims: c }; try { localStorage.setItem(TOKEN_KEY, r.credential); } catch (e) {} } load(); }); }, auto_select: true });
       google.accounts.id.renderButton(btn, { theme: "outline", size: "large", shape: "pill" });
     });
   }
-  function signOut(msg) { try { localStorage.removeItem(TOKEN_KEY); } catch (e) {} st.token = null; if (window.google && google.accounts) google.accounts.id.disableAutoSelect(); signedOut(typeof msg === "string" ? msg : ""); }
+  function signOut(msg) { if (st.token && st.token.session) { try { fetch(API + "/api/session", { method: "DELETE", headers: { Authorization: "Bearer " + st.token.raw } }).catch(function () {}); } catch (e) {} } try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {} st.token = null; if (window.google && google.accounts) google.accounts.id.disableAutoSelect(); signedOut(typeof msg === "string" ? msg : ""); }
 
   /* ---------- data ---------- */
   function loadPhotos() {
@@ -305,5 +315,8 @@
   /* ---------- start ---------- */
   if (!API || !CLIENT) return show(h("div", { class: "ja-card" }, h("p", { class: "ja-bad", text: "Missing data-api or data-client." })));
   var t = savedToken();
-  if (t) { st.token = t; load(); } else signedOut("");
+  if (t) {
+    st.token = t; load();
+    if (!t.session) makeSession(t.raw).then(function (n) { if (n) st.token = n; }); // quietly move an older sign-in to a 30 day session
+  } else signedOut("");
 })();

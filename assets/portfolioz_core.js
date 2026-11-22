@@ -79,13 +79,13 @@ function createProfile(ele,i) {
  child = document.createElement("div")
  nameDash = ele.Name.replace(/ /g,'_')
  img = xii+'/'+nameDash+'.jpg'
- var photoSrc = ele.photo || (giti + img)
+ var photos = photoList(ele, img, 96)
   child.className = "vessels collapsed";
   child.innerHTML =
  `<a class="nameBox" href="#${nameDash}" onclick="doh()">
     <div class="pp">
       <img class="svgP svgPP">
-      <img class="coverPP" loading="lazy" decoding="async" width="60" height="60" src="${photoSrc}" onerror="this.className='svgP svgPP'" alt="${ele.Name}" />
+      <img class="coverPP" loading="lazy" decoding="async" width="60" height="60" src="${esc(photos[0])}" data-rest="${esc(JSON.stringify(photos.slice(1)))}" referrerpolicy="no-referrer" onerror="jnvNextPhoto(this)" alt="${ele.Name}" />
     </div>
     <h2 class="naming">${ele.Name}</h2>
   </a>
@@ -97,7 +97,7 @@ function createProfile(ele,i) {
     <div class="back"><i class="svgBack"></i></div>
   </div>
   <div class="details">
-  ${heroHtml(ele, photoSrc)}
+  ${heroHtml(ele, photoList(ele, img, 240))}
   ${galleryCard(ele)}
   ${ripDiv(ele.rip)}
   ${aboutCard(ele.Bio)}
@@ -143,6 +143,21 @@ function createProfile(ele,i) {
 
 
 //---------- profile helpers (new fields) ----------
+// Photos to try in order: the one they uploaded, the old photo on GitHub, the Drive photo from the Meet form, then their Google (Gmail) photo
+function photoList(ele, img, size) {
+  var l = [];
+  if (ele.photo) l.push(ele.photo);
+  l.push(giti + img);
+  if (ele.ppl) l.push("https://lh3.googleusercontent.com/d/" + ele.ppl);
+  if (ele.gpic) l.push(ele.gpic.replace(/=s\d+-c$/, "=s" + size + "-c"));
+  return l;
+}
+function jnvNextPhoto(el) { // the picture did not load: try the next one, then show the placeholder
+  var rest = [];
+  try { rest = JSON.parse(el.getAttribute("data-rest") || "[]"); } catch (e) {}
+  if (rest.length) { el.setAttribute("data-rest", JSON.stringify(rest.slice(1))); el.src = rest[0]; return; }
+  if (el.classList.contains("coverPP")) el.className = "svgP svgPP"; else el.style.display = "none";
+}
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function(c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function rowsOf(t) { return t ? String(t).split("~").map(function(r) { return r.split("|").map(function(c) { return c.trim(); }); }) : []; }
 function yearOf(r) { var m = String(r[0] || "").match(/\d{4}/g); return m ? Number(m[m.length - 1]) : 0; }
@@ -157,11 +172,11 @@ function card(title, inner) { return inner ? `<div class="card"><h3>${title}</h3
 function act(href, label, ico, primary) {
   return `<a class="act${primary ? " act-p" : ""}" href="${esc(href)}"><i class="ico ${ico}"></i>${label}</a>`;
 }
-function heroHtml(ele, photoSrc) {
+function heroHtml(ele, photos) {
   var p = ele.Phone || ele.Phone2, acts = "";
   if (p) acts += act("tel:" + p, "Call", "svgCall", true) + act("whatsapp://send?phone=" + ph91(p), "WhatsApp", "svgWp");
-  var pic = `<img class="coverP" loading="lazy" src="${esc(photoSrc)}" onerror="this.style.display='none'" alt="">`;
-  var big = ele.photo || (ele.ppl ? "https://lh3.googleusercontent.com/d/" + ele.ppl : "");
+  var pic = `<img class="coverP" loading="lazy" src="${esc(photos[0])}" data-rest="${esc(JSON.stringify(photos.slice(1)))}" referrerpolicy="no-referrer" onerror="jnvNextPhoto(this)" alt="">`;
+  var big = ele.photo || (ele.ppl ? "https://lh3.googleusercontent.com/d/" + ele.ppl : "") || (ele.gpic ? ele.gpic.replace(/=s\d+-c$/, "=s600-c") : "");
   if (big) pic = `<a href="${esc(big)}" target="_blank" rel="noopener">${pic}</a>`;
   var sub = [ele.CurrentStatus, hqOf(ele)].filter(Boolean).map(esc).join(" · ");
   var own = isOwn(ele), tag = ele.tag || (own && window.JNV_ME.role ? ({ owner: "Admin", admin: "Admin", core: "Core Member" })[window.JNV_ME.role] : "");

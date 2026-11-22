@@ -87,3 +87,4 @@ select.ja-input{padding-right:32px;background-image:url("data:image/svg+xml,%3Cs
 .ja-ph .ja-actions{margin:8px 0 0}
 .ja-ph .ja-btn{min-height:36px;padding:6px 10px;font-size:13px}
 @media (min-width:600px){.ja-pgrid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+a.ja-rowbtn{text-decoration:none;box-sizing:border-box}

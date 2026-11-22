@@ -227,3 +227,26 @@ h2.naming{font-weight:500;margin:0;padding:0;color:var(--jb-text)}
 .jn-lb .lb-p{left:10px;top:50%;margin-top:-22px}
 .jn-lb .lb-n{right:10px;top:50%;margin-top:-22px}
 @media (prefers-reduced-motion:reduce){.sl-img{transition:none}}
+
+/* ---------- dark-theme fix: memories quote block ---------- */
+.card .memo,
+.card blockquote,
+.post-body .card blockquote,
+#Blog1 .post-body .memo{
+  background:var(--jb-surface2)!important;
+  color:var(--jb-text)!important;
+  border-left:3px solid var(--jb-gold)!important;
+  border-radius:0 10px 10px 0;
+  box-shadow:none!important;
+  padding:12px 14px!important;
+  margin:0!important;
+  font-style:italic;
+  line-height:1.6;
+}
+.card .memo *,
+.card blockquote *{color:inherit!important;background:none!important}
+.card .memo::before,.card .memo::after,
+.card blockquote::before,.card blockquote::after{color:var(--jb-gold)!important;opacity:.85}
+
+/* ---------- hide Blogger post header on year pages ---------- */
+#Blog1 .post-header{display:none}

@@ -174,7 +174,9 @@
     return box;
   }
 
-  var state = { dirty: false, pushed: false, skipPop: false, afterSave: null, flash: "", token: null, claims: null, me: null, photoBlob: null, photoUrl: null, ownPhotoUrl: null, editing: false, busy: false };
+  var ADMIN_URL = root.dataset.admin || "/p/admin.html";
+  var editMatch = /^#edit=([0-9a-f-]{36})$/i.exec(location.hash || "");
+  var state = { editId: editMatch ? editMatch[1].toLowerCase() : null, target: null, notAdmin: false, dirty: false, pushed: false, skipPop: false, afterSave: null, flash: "", token: null, claims: null, me: null, photoBlob: null, photoUrl: null, ownPhotoUrl: null, editing: false, busy: false };
 
   /* ---------- tiny helpers ---------- */
   function h(tag, attrs) {
@@ -284,8 +286,15 @@
   function load() {
     show(h("div", { class: "jl-card jl-center" }, h("p", { class: "jl-muted", text: "Loading your details..." })));
     return api("/api/me").then(function (me) {
-      state.me = me; state.editing = false; state.dirty = false; state.photoBlob = null; state.gallery = null;
+      state.me = me; state.editing = false; state.dirty = false; state.photoBlob = null; state.gallery = null; state.target = null;
       if (state.ownPhotoUrl) { URL.revokeObjectURL(state.ownPhotoUrl); state.ownPhotoUrl = null; }
+      if (state.editId && !me.isAdmin) { state.editId = null; state.notAdmin = true; }
+      if (state.editId) { // an admin editing someone else: same form, their details, saved through the admin route
+        return api("/api/admin/" + state.editId).then(function (r) {
+          state.target = r.member; state.editing = true;
+          state.me = { user: me.user, role: me.role, isAdmin: me.isAdmin, isCore: me.isCore, member: r.member };
+        });
+      }
       var m = me.member;
       if (m && m.draft_photo) {
         return api("/api/me/photo", { asBlob: true }).then(function (b) { state.ownPhotoUrl = URL.createObjectURL(b); }, function () {});
@@ -335,6 +344,7 @@
     var me = state.me, m = me.member, v = values();
     var user = me.user || {};
     var editing = state.editing;
+    var admin = !!state.target; // an admin editing another member
     var isNew = !m;
     var form = h("form", { class: "jl-form" + (editing ? " jl-editing" : ""), novalidate: true, onsubmit: onSave });
 
@@ -380,21 +390,30 @@
     form.addEventListener("input", markDirty);
     form.addEventListener("change", markDirty);
 
+    if (admin) { // only admins see this box: the Gmail the person signs in with, and the memorial year
+      var box = h("fieldset", { class: "jl-sec jl-adminbox" }, h("legend", { text: "Admin only", "data-ico": "\ud83d\udd11" }),
+        h("div", { class: "jl-field" }, h("label", { for: "jl-__email", text: "Google email (used to sign in)" }),
+          h("input", { id: "jl-__email", name: "__email", type: "email", maxlength: 200, value: m.email || "", disabled: !editing, autocomplete: "off" })),
+        h("div", { class: "jl-field" }, h("label", { for: "jl-rip", text: "In memoriam (year)" }),
+          h("input", { id: "jl-rip", name: "rip", type: "text", maxlength: 40, value: (m.data && m.data.rip) || "", placeholder: "eg. 2024", disabled: !editing, autocomplete: "off" })));
+      form.insertBefore(box, form.firstChild);
+    }
+
     var actions = h("div", { class: "jl-actions" },
-      h("button", { type: "submit", class: "jl-btn jl-primary", id: "jl-save", text: "Save changes" }),
-      h("button", { type: "button", class: "jl-btn", text: "Cancel", onclick: function () { guard(stopEditing); } }),
+      h("button", { type: "submit", class: "jl-btn jl-primary", id: "jl-save", text: admin ? "Save" : "Save changes" }),
+      h("button", { type: "button", class: "jl-btn", text: "Cancel", onclick: function () { guard(admin ? function () { location.href = ADMIN_URL; } : stopEditing); } }),
       h("span", { class: "jl-msg", id: "jl-note", role: "status" }));
     form.appendChild(actions);
 
     var fileInput = h("input", { type: "file", accept: "image/*", class: "jl-file", id: "jl-file", onchange: onPhoto });
     var head = h("div", { class: "jl-head" },
       h("div", { class: "jl-ph" }, avatar(v, m),
-        editing ? h("label", { class: "jl-btn jl-small", for: "jl-file", text: "Change photo" }) : null, editing ? fileInput : null),
+        editing && !admin ? h("label", { class: "jl-btn jl-small", for: "jl-file", text: "Change photo" }) : null, editing && !admin ? fileInput : null),
       h("div", { class: "jl-who" },
         h("h2", { text: v.Name || user.name || "Welcome" }),
         h("p", { class: "jl-muted", text: v.Batch ? "Batch " + v.Batch : "No entry yet" }),
-        me.isAdmin ? h("span", { class: "jl-chip", text: "Admin" }) : null,
-        me.isCore ? h("span", { class: "jl-chip", text: "Core member" }) : null));
+        me.isAdmin && !admin ? h("span", { class: "jl-chip", text: "Admin" }) : null,
+        me.isCore && !admin ? h("span", { class: "jl-chip", text: "Core member" }) : null));
 
     var toggle = h("label", { class: "jl-switch" },
       h("input", { type: "checkbox", role: "switch", id: "jl-edit", checked: editing, onchange: function (e) { if (e.target.checked) return startEditing(); if (state.dirty) e.target.checked = true; guard(stopEditing); } }),
@@ -408,9 +427,20 @@
 
     var pn = m && m.status === "approved" ? ((m.data && m.data.Name) || m.name) : "";
     var profileBtn = pn && m.batch ? h("a", { class: "jl-btn jl-profilebtn", href: "/" + m.batch + "#" + nameKey(pn), text: "Go to my profile" }) : null;
-    var body = [profileBtn, top, head];
-    if (me.isAdmin) body.push(h("a", { class: "jl-btn jl-primary jl-adminlink", href: root.dataset.admin || "/p/admin.html", text: "Open admin page" }));
-    if (isNew && !editing) {
+    var adminBar = !admin ? null : h("div", { class: "jl-adminbar" },
+      h("p", { class: "jl-adminttl" }, h("b", { text: "Editing " + m.name + " (Batch " + m.batch + ")" }), " as admin"),
+      h("div", { class: "jl-adminacts" },
+        h("a", { class: "jl-btn jl-small", href: ADMIN_URL, text: "Back to admin" }),
+        pn ? h("a", { class: "jl-btn jl-small", href: "/" + m.batch + "#" + nameKey(pn), text: "View profile" }) : null,
+        m.has_prev ? h("button", { type: "button", class: "jl-btn jl-small", text: "Undo last edit", onclick: function () { guard(function () { adminAct("/api/admin/" + m.id + "/undo", "Go back to the version before the last edit?", function () { state.flash = "Reverted."; load(); }); }); } }) : null,
+        h("button", { type: "button", class: "jl-btn jl-small jl-danger", text: "Delete member", onclick: function () { guard(function () { adminAct("/api/admin/" + m.id, "Delete " + m.name + " permanently?", function () { state.dirty = false; location.href = ADMIN_URL; }); }); } })));
+    var body = admin ? [adminBar, top, head] : [profileBtn, top, head];
+    if (state.notAdmin) body.push(h("p", { class: "jl-msg jl-warn", text: "Only admins can edit other members. This is your own profile." }));
+    if (me.isAdmin && !admin) body.push(h("a", { class: "jl-btn jl-primary jl-adminlink", href: root.dataset.admin || "/p/admin.html", text: "Open admin page" }));
+    if (admin) {
+      body.push(h("p", { class: "jl-hint", text: m.status === "approved" ? "Changes go live on the site right away." : "Not approved yet. Saving updates their sign-up request; approve it on the admin page." }));
+      body.push(form);
+    } else if (isNew && !editing) {
       body.push(h("p", { class: "jl-msg jl-warn", text: "We could not find an alumni entry for " + (user.email || "this account") + ". If you are already listed under another email, tell the admin so it can be linked. Otherwise create your profile." }));
       body.push(h("button", { type: "button", class: "jl-btn jl-primary", text: "Create my profile", onclick: startEditing }));
     } else {
@@ -422,10 +452,14 @@
       body.push(form);
     }
     show(h.apply(null, ["div", { class: "jl-card" }].concat(body)));
-    mountGallery();
+    if (!admin) mountGallery();
   }
 
   function markDirty() { state.dirty = true; }
+  function adminAct(path, ask, done) {
+    if (!window.confirm(ask)) return;
+    api(path, { method: path.slice(-5) === "/undo" ? "POST" : "DELETE" }).then(done).catch(function (e) { if (e.message !== "expired") window.alert(e.message); });
+  }
   function startEditing() {
     state.editing = true; state.dirty = false;
     try { history.pushState({ jlEdit: 1 }, "", location.href); state.pushed = true; } catch (e) {} // so the Back button asks before leaving
@@ -638,6 +672,18 @@
     if (!data.Batch) return say("Please choose your pass-out year", true);
     function say(t, bad) { note.textContent = t; note.className = "jl-msg " + (bad ? "jl-bad" : "jl-ok"); if (bad) state.afterSave = null; }
     state.busy = true; btn.disabled = true; say("Saving...");
+    if (state.target) { // admin: save through the admin route, then go back to the admin page
+      var rip = String(form.elements.rip.value || "").trim();
+      if (rip) data.rip = rip;
+      return api("/api/admin/" + state.target.id, { method: "PUT", json: { email: String(form.elements.__email.value || "").trim(), data: data } }).then(function () {
+        state.busy = false; state.dirty = false; state.editing = false; state.afterSave = null;
+        say("Saved.");
+        setTimeout(function () { location.href = ADMIN_URL; }, 400);
+      }).catch(function (err) {
+        state.busy = false; btn.disabled = false; state.afterSave = null;
+        if (err.message !== "expired") say(err.message, true);
+      });
+    }
     var said = "";
     api("/api/me", { method: "PUT", json: { data: data } }).then(function (r) {
       said = r.message || "";

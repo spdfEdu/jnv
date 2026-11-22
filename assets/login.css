@@ -144,3 +144,12 @@
 .jl-gal-plus{font-size:26px;line-height:1}
 .jl-gnote{margin:10px 0 0}
 .jl-gnote[hidden]{display:none}
+
+
+/* admin editing another member */
+.jl-adminbar{margin:0 0 14px;padding:14px;border:1px solid var(--jb-gold,#E6B84A);border-radius:16px;background:color-mix(in srgb,var(--jb-gold,#E6B84A) 12%,var(--jb-surface,#fff))}
+.jl-adminttl{margin:0 0 10px;font-size:15px;color:var(--jb-text,#0E1B36)}
+.jl-adminacts{display:flex;flex-wrap:wrap;gap:8px}
+.jl-adminacts .jl-btn{text-decoration:none}
+.jl-danger{color:#ff7b7b!important;border-color:#d64545!important}
+.jl-adminbox{border-style:dashed!important}

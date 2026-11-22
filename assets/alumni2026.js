@@ -9,7 +9,8 @@
   var LOGIN = root.dataset.login || "/p/login.html";
   var RESPONSES = root.dataset.responses || "/p/alumni2026-responses.html";
   var FORM = root.dataset.form || "/p/alumni2026.html";
-  var TOKEN_KEY = "jnv-id-token"; // same key as the login and admin pages: sign in once, works everywhere
+  var TOKEN_KEY = "jnv-id-token"; // an older one hour Google sign-in
+  var SESSION_KEY = "jnv-session"; // the 30 day sign-in, shared with the login and admin pages: sign in once, works everywhere
 
   var STATUS = ["Studying", "Working", "Preparation", "Self employed", "Employee", "Looking for a job"];
   var SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
@@ -50,9 +51,19 @@
 
   /* ---------- sign in and API ---------- */
   function savedToken() {
+    // the 30 day session first (the server says when it ends), then an older Google sign-in that is still valid
+    var ss = null; try { ss = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) {}
+    if (ss && ss.t) return { raw: ss.t, claims: ss.user || {}, session: true };
     var t = null; try { t = localStorage.getItem(TOKEN_KEY); } catch (e) {}
     var c = t && decode(t);
     return c && c.exp * 1000 > Date.now() + 60000 ? { raw: t, claims: c } : null;
+  }
+  // swap an hour-long Google sign-in for a 30 day session (null if that is not possible)
+  function makeSession(googleToken) {
+    return fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + googleToken } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) { if (!r) return null; try { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: r.session, user: r.user })); localStorage.removeItem(TOKEN_KEY); } catch (e) {} return { raw: r.session, claims: r.user, session: true }; })
+      .catch(function () { return null; });
   }
   function api(path, opts) {
     opts = opts || {};
@@ -80,15 +91,20 @@
       google.accounts.id.renderButton(box, { theme: "filled_blue", size: "large", shape: "pill", text: "signin_with" });
     });
   }
+  // resolves to the new token (a 30 day session when possible), or null
   function keepToken(cred) {
     var c = decode(cred);
-    if (!c) return null;
-    st.token = { raw: cred, claims: c };
-    try { localStorage.setItem(TOKEN_KEY, cred); } catch (e) {}
-    return c;
+    if (!c) return Promise.resolve(null);
+    return makeSession(cred).then(function (t) {
+      if (t) { st.token = t; return t; }
+      st.token = { raw: cred, claims: c };
+      try { localStorage.setItem(TOKEN_KEY, cred); } catch (e) {}
+      return st.token;
+    });
   }
   function signOut(note) {
-    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    if (st.token && st.token.session) { try { fetch(API + "/api/session", { method: "DELETE", headers: { Authorization: "Bearer " + st.token.raw } }).catch(function () {}); } catch (e) {} } // end it on the server too
+    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {}
     st.token = null; st.me = null; st.pick = null; st.err = "";
     if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
     if (MODE === "responses") signedOutResponses(typeof note === "string" ? note : "");
@@ -171,7 +187,7 @@
       var c = decode(r.credential);
       if (!c) return;
       if (p.email && String(c.email).toLowerCase() !== p.email.toLowerCase()) { st.err = "You signed in as " + c.email + ". Please use " + p.email + " for this name."; signIn(); return; }
-      st.err = ""; keepToken(r.credential); loadMe();
+      st.err = ""; keepToken(r.credential).then(function (t) { if (t) loadMe(); });
     });
   }
 
@@ -260,7 +276,7 @@
     var box = h("div", { class: "am-gbtn" });
     show(h("div", { class: "am-card am-center" }, h("h2", { text: "Alumni Meet 2026 responses" }),
       note ? msg(note, "warn") : h("p", { class: "am-muted", text: "For core members and admins. Sign in with your Gmail." }), box));
-    googleButton(box, "", function (r) { if (keepToken(r.credential)) loadResponses(); });
+    googleButton(box, "", function (r) { keepToken(r.credential).then(function (t) { if (t) loadResponses(); }); });
   }
   function loadResponses() {
     show(h("div", { class: "am-card am-center" }, h("p", { class: "am-muted", text: "Loading..." })));
@@ -324,7 +340,7 @@
   /* ---------- start ---------- */
   if (!API || !CLIENT) return show(h("div", { class: "am-card" }, msg("Missing data-api or data-client.", "bad")));
   var t = savedToken();
-  if (t) st.token = t;
+  if (t) { st.token = t; if (!t.session) makeSession(t.raw).then(function (n) { if (n) st.token = n; }); } // quietly move an older sign-in to a 30 day session
   if (MODE === "responses") { if (t) loadResponses(); else signedOutResponses(""); }
   else { head.appendChild(welcome()); if (t) loadMe(); else picker(); }
 })();

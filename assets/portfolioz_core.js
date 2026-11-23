@@ -39,7 +39,7 @@ upper.innerHTML =
     </div>
     <dl class="bc-stats">
       <div class="bc-stat"><dt>Studied</dt><dd>${x} to ${xii}</dd></div>
-      <div class="bc-stat"><dt>Alumni</dt><dd>${all.length}</dd></div>
+      <div class="bc-stat"><dt>Registered Alumni</dt><dd>${all.length}</dd></div>
       ${(typeof date !== "undefined" && !window.JNV_LIVE) ? `<div class="bc-stat bc-wide"><dt>Data collected</dt><dd>${date}</dd></div>` : ""}
     </dl>
   </div>`;
@@ -176,8 +176,7 @@ function heroHtml(ele, photos) {
   var p = ele.Phone || ele.Phone2, acts = "";
   if (p) acts += act("tel:" + p, "Call", "svgCall", true) + act("whatsapp://send?phone=" + ph91(p), "WhatsApp", "svgWp");
   var pic = `<img class="coverP" loading="lazy" src="${esc(photos[0])}" data-rest="${esc(JSON.stringify(photos.slice(1)))}" referrerpolicy="no-referrer" onerror="jnvNextPhoto(this)" alt="">`;
-  var big = ele.photo || (ele.ppl ? "https://lh3.googleusercontent.com/d/" + ele.ppl : "") || (ele.gpic ? ele.gpic.replace(/=s\d+-c$/, "=s600-c") : "");
-  if (big) pic = `<a href="${esc(big)}" target="_blank" rel="noopener">${pic}</a>`;
+  pic = `<a href="#" class="hero-zoom" onclick="return jnvZoom(this)" aria-label="View photo larger">${pic}</a>`;
   var sub = [ele.CurrentStatus, hqOf(ele)].filter(Boolean).map(esc).join(" · ");
   var own = isOwn(ele), tag = ele.tag || (own && window.JNV_ME.role ? ({ owner: "Admin", admin: "Admin", core: "Core Member" })[window.JNV_ME.role] : "");
   var chips = (tag ? (own ? `<a class="chip chip-role chip-link" href="${esc(window.JNV_ADMIN || "/p/admin.html")}" title="Open the admin page">${esc(tag)}</a>` : `<span class="chip chip-role">${esc(tag)}</span>`) : "") +
@@ -275,18 +274,97 @@ function initProfileSliders(root) {
 }
 function jnvLightbox(list, i) {
   var lb = document.createElement("div");
-  lb.className = "jn-lb"; lb.setAttribute("role", "dialog"); lb.setAttribute("aria-label", "Photo");
-  lb.innerHTML = '<img alt=""><button type="button" class="lb-x" aria-label="Close">×</button>' +
-    (list.length > 1 ? '<button type="button" class="lb-p" aria-label="Previous">‹</button><button type="button" class="lb-n" aria-label="Next">›</button>' : "");
+  lb.className = "jn-lb"; lb.setAttribute("role", "dialog"); lb.setAttribute("aria-modal", "true"); lb.setAttribute("aria-label", "Photo");
+  lb.innerHTML = '<img alt="" draggable="false"><button type="button" class="lb-x" aria-label="Close">\u00d7</button>' +
+    (list.length > 1 ? '<button type="button" class="lb-p" aria-label="Previous">\u2039</button><button type="button" class="lb-n" aria-label="Next">\u203a</button>' : "");
   var img = lb.querySelector("img");
-  function show(k) { i = (k + list.length) % list.length; img.src = list[i]; }
-  function close() { document.removeEventListener("keydown", key); lb.remove(); }
-  function key(e) { if (e.key === "Escape") close(); else if (e.key === "ArrowLeft") show(i - 1); else if (e.key === "ArrowRight") show(i + 1); }
-  lb.addEventListener("click", function (e) {
-    if (e.target.classList.contains("lb-p")) show(i - 1); else if (e.target.classList.contains("lb-n")) show(i + 1); else close();
+  var s = 1, tx = 0, ty = 0, MAXZ = 6;            // zoom, and how far the photo is moved
+  var pts = {}, pinch = null, drag = null, lastTap = 0, tapAt = null;
+  function put(anim) { img.classList.toggle("anim", !!anim); img.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + s + ")"; }
+  function limit() { // the photo can be moved only as far as its edges
+    var mx = Math.max(0, (img.clientWidth * s - lb.clientWidth) / 2), my = Math.max(0, (img.clientHeight * s - lb.clientHeight) / 2);
+    tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+  }
+  function zoomTo(ns, cx, cy, anim) { // zoom around a point so that point stays under the finger
+    ns = Math.min(MAXZ, Math.max(1, ns));
+    var ox = cx - lb.clientWidth / 2, oy = cy - lb.clientHeight / 2;
+    tx = ox - (ox - tx) * (ns / s); ty = oy - (oy - ty) * (ns / s); s = ns;
+    if (s === 1) { tx = 0; ty = 0; }
+    limit(); put(anim);
+  }
+  function show(k) { i = (k + list.length) % list.length; s = 1; tx = 0; ty = 0; put(false); img.src = list[i]; }
+  function close() { document.removeEventListener("keydown", key); document.body.style.overflow = prevOverflow; lb.remove(); }
+  function key(e) { if (e.key === "Escape") close(); else if (e.key === "ArrowLeft" && list.length > 1) show(i - 1); else if (e.key === "ArrowRight" && list.length > 1) show(i + 1); else if (e.key === "+" || e.key === "=") zoomTo(s * 1.4, lb.clientWidth / 2, lb.clientHeight / 2, true); else if (e.key === "-") zoomTo(s / 1.4, lb.clientWidth / 2, lb.clientHeight / 2, true); }
+  function dist() { var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
+  function mid() { var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+
+  lb.addEventListener("pointerdown", function (e) {
+    if (e.target.closest("button")) return;
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    try { lb.setPointerCapture(e.pointerId); } catch (err) {}
+    var n = Object.keys(pts).length;
+    if (n === 2) { var m = mid(); pinch = { d: dist(), s: s, tx: tx, ty: ty, mx: m.x, my: m.y }; drag = null; tapAt = null; }
+    else if (n === 1) { drag = { x: e.clientX, y: e.clientY, tx: tx, ty: ty, moved: false, t: Date.now() }; tapAt = { x: e.clientX, y: e.clientY }; }
   });
+  lb.addEventListener("pointermove", function (e) {
+    if (!pts[e.pointerId]) return;
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (pinch && Object.keys(pts).length >= 2) { // two fingers: zoom, and follow the middle point
+      var m = mid(), ns = Math.min(MAXZ, Math.max(1, pinch.s * dist() / pinch.d));
+      var ox = pinch.mx - lb.clientWidth / 2, oy = pinch.my - lb.clientHeight / 2;
+      tx = (m.x - lb.clientWidth / 2) - (ox - pinch.tx) * (ns / pinch.s);
+      ty = (m.y - lb.clientHeight / 2) - (oy - pinch.ty) * (ns / pinch.s);
+      s = ns; if (s === 1) { tx = 0; ty = 0; }
+      limit(); put(false); tapAt = null; return;
+    }
+    if (drag) {
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 8) { drag.moved = true; tapAt = null; }
+      if (s > 1) { tx = drag.tx + dx; ty = drag.ty + dy; limit(); put(false); }
+    }
+  });
+  function up(e) {
+    if (!pts[e.pointerId]) return;
+    var was = drag, left = Object.keys(pts).length;
+    delete pts[e.pointerId];
+    try { lb.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (left === 2) { // one finger stays: carry on as a drag from here
+      var k = Object.keys(pts)[0]; pinch = null; drag = { x: pts[k].x, y: pts[k].y, tx: tx, ty: ty, moved: true, t: Date.now() };
+      if (s < 1.05) { s = 1; tx = 0; ty = 0; put(true); }
+      return;
+    }
+    drag = null; pinch = null;
+    if (!was) return;
+    var dx = e.clientX - was.x, dy = e.clientY - was.y;
+    if (was.moved && s === 1 && list.length > 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { show(i + (dx < 0 ? 1 : -1)); return; } // swipe to the next photo
+    if (!was.moved && tapAt) { // a tap: double tap zooms in or back out, a tap outside the photo closes
+      var now = Date.now();
+      if (e.target === img) {
+        if (now - lastTap < 320) { lastTap = 0; if (s > 1) zoomTo(1, e.clientX, e.clientY, true); else zoomTo(2.5, e.clientX, e.clientY, true); }
+        else lastTap = now;
+      } else if (e.target === lb) close();
+    }
+    tapAt = null;
+  }
+  lb.addEventListener("pointerup", up);
+  lb.addEventListener("pointercancel", function (e) { delete pts[e.pointerId]; drag = null; pinch = null; tapAt = null; });
+  lb.addEventListener("wheel", function (e) { e.preventDefault(); zoomTo(s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), e.clientX, e.clientY, false); }, { passive: false });
+  lb.addEventListener("click", function (e) {
+    if (e.target.classList.contains("lb-x")) close();
+    else if (e.target.classList.contains("lb-p")) show(i - 1);
+    else if (e.target.classList.contains("lb-n")) show(i + 1);
+  });
+  var prevOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
   document.addEventListener("keydown", key);
   show(i); document.body.appendChild(lb);
+}
+// the profile photo on a profile page opens in the same zoomable viewer
+function jnvZoom(a) {
+  var img = a.querySelector("img");
+  if (!img || img.style.display === "none" || !img.naturalWidth) return false; // no photo to show
+  jnvLightbox([(img.currentSrc || img.src).replace(/=s\d+-c$/, "=s1200-c")], 0);
+  return false;
 }
 // A slider whose box never changes size: photos sit inside a fixed 4:3 stage, never cropped,
 // with a blurred copy of the photo filling any empty space. It slides by itself while visible.
@@ -323,7 +401,7 @@ function buildSlider(host, urls) {
     if (byUser) restart();
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
-  function restart() { stop(); if (seen) timer = setInterval(function () { if (!document.hidden) go(cur + 1); }, 5000); }
+  function restart() { stop(); if (seen) timer = setInterval(function () { if (!document.hidden) go(cur + 1); }, 3000); }
   prev.addEventListener("click", function () { go(cur - 1, true); });
   next.addEventListener("click", function () { go(cur + 1, true); });
   var x0 = null;
@@ -429,7 +507,7 @@ sorting = {
 }
 
 bgInsert = document.createElement("div")
-bgplText = `<strong>${all.length}</strong> registered alumni`
+bgplText = `<strong>${all.length}</strong> Registered Alumni`
 bgInsert.className = "bgpc"
 bgInsert.innerHTML =`
 <div class="tb-top">
@@ -462,7 +540,7 @@ main.insertBefore(bgInsert, main.firstChild);
   }
   var saved = null;
   try { saved = localStorage.getItem("jnv-view"); } catch(e) {}
-  setView(saved === "grid");
+  setView(saved !== "list"); // grid unless they chose list before
   btn.addEventListener("click", function() {
     var grid = !main.classList.contains("grid-view");
     setView(grid);
@@ -491,7 +569,7 @@ function find(e) {
 function ckFind(ev) {
  var toFind = ev.target[0].value;
   filter = all.filter(person => person[toFind] === ev.target.value)
-  bgpl.innerHTML = "<strong>" + filter.length + "</strong> of " + all.length + " alumni (" + ev.target[0].value + ": " + ev.target.value + ")"
+  bgpl.innerHTML = "<strong>" + filter.length + "</strong> of " + all.length + " Alumni (" + ev.target[0].value + ": " + ev.target.value + ")"
   insertProfiles.innerHTML=''
   filter.forEach(createProfile);
   }

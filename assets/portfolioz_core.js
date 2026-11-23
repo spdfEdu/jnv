@@ -82,7 +82,7 @@ function createProfile(ele,i) {
  var photos = photoList(ele, img, 96)
   child.className = "vessels collapsed";
   child.innerHTML =
- `<a class="nameBox" href="#${nameDash}" onclick="doh()">
+ `<a class="nameBox" href="#${nameDash}">
     <div class="pp">
       <img class="svgP svgPP">
       <img class="coverPP" loading="lazy" decoding="async" width="60" height="60" src="${esc(photos[0])}" data-rest="${esc(JSON.stringify(photos.slice(1)))}" referrerpolicy="no-referrer" onerror="jnvNextPhoto(this)" alt="${ele.Name}" />
@@ -618,53 +618,61 @@ function downVcardi(key) {
   withVcard(function() { vCard.export(g, g.fn, true); });
 }
 
-function doh2(e) {
-   e.parentNode.classList.remove("active")
-   document.body.style.overflow = "scroll"
-   if (window.history.length>=1) {
-     location.href = window.location.pathname
-   }
-   if (window.history.length>2) {
-     window.history.back()
-   }
+//---------- open / close a profile (works on Android, iOS and desktop) ----------
+function openProfile(vessel) {
+  var d = vessel.querySelector(".contentBox");
+  vessel.classList.remove("collapsed");
+  d.removeAttribute("hidden");
+  d.classList.add("active");
+  document.body.style.overflow = "hidden";
+  if (location.hash !== "#" + d.id) history.pushState({ jnvOpen: 1 }, "", "#" + d.id);
+  ppVisit(d.id);
+}
+function closeProfile(vessel) {
+  var d = vessel.querySelector(".contentBox");
+  vessel.classList.add("collapsed");
+  d.setAttribute("hidden", "until-found");
+  d.classList.remove("active");
+  document.body.style.overflow = "scroll";
 }
 
-window.addEventListener('popstate', function (event) {
-  var act = document.getElementsByClassName("active")[0]
-  if (act) {
-   act.hidden = "until-found";
-   act.classList.remove("active");
-   document.body.style.overflow = "scroll";
+// one listener for all tiles, including tiles re-created by the filters
+insertProfiles.addEventListener("click", function (e) {
+  var a = e.target.closest(".nameBox");
+  if (!a) return;
+  e.preventDefault();
+  var v = a.closest(".vessels");
+  if (v.classList.contains("collapsed")) openProfile(v); else closeProfile(v);
+});
+
+// Chrome find-in-page reveal
+insertProfiles.addEventListener("beforematch", function (e) {
+  var v = e.target.closest(".vessels");
+  if (v) openProfile(v);
+});
+
+// the back arrow inside a profile
+function doh2(el) {
+  if (history.state && history.state.jnvOpen) {
+    history.back(); // the popstate listener below closes the profile
+  } else { // opened from a shared link, nothing was pushed
+    closeProfile(el.closest(".vessels"));
+    history.replaceState(null, "", location.pathname + location.search);
   }
-});
-  
-function doh(){
-  document.querySelectorAll(".vessels").forEach((vessel) => {
-  var details = vessel.querySelector(".contentBox");
-  vessel.onbeforematch = () => {
-    vessel.classList.remove("collapsed");
-    location.href = "#"+details.id
-    details.classList.add("active")
-    document.body.style.overflow = "hidden"
-    ppVisit(details.id)
-  };
-  vessel.querySelector(".nameBox").onclick = () => {
-    vessel.classList.toggle("collapsed");
-    details.classList.add("active")
-    if (vessel.classList.contains("collapsed")) {
-      details.hidden = "until-found";
-      details.classList.remove("active")
-      document.body.style.overflow = "scroll";
-    } else {
-      details.removeAttribute("hidden");
-      details.classList.add("active")
-      document.body.style.overflow = "hidden"
-      location.href = "#"+details.id
-    }
-  };
-});
 }
-doh();
+
+// phone Back button / swipe-back closes the open profile
+window.addEventListener("popstate", function () {
+  var d = document.querySelector(".contentBox.active");
+  if (d) closeProfile(d.closest(".vessels"));
+});
+
+// a shared link like /2018#Name opens that profile on load
+(function () {
+  var id = decodeURIComponent(location.hash.slice(1));
+  var d = id && document.getElementById(id);
+  if (d && d.classList.contains("contentBox")) openProfile(d.closest(".vessels"));
+})();
   
   for (i=y+7;i<=year;i++) {
 var batches = document.createElement("div");

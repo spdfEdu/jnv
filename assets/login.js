@@ -529,7 +529,7 @@
 
   /* ---------- photo to WebP ---------- */
   function toWebp(file) {
-    return loadImage(file).then(function (o) {
+    return (file && file.d ? Promise.resolve(file) : loadImage(file)).then(function (o) {
       var side = Math.min(o.w, o.h), sx = (o.w - side) / 2, sy = (o.h - side) / 2;
       var sizes = [480, 400, 320, 240], quals = [0.82, 0.7, 0.6, 0.5], tries = [];
       sizes.forEach(function (s) { quals.forEach(function (q) { tries.push([s, q]); }); });
@@ -562,6 +562,129 @@
       i.onload = function () { res({ d: i, w: i.naturalWidth, h: i.naturalHeight }); URL.revokeObjectURL(u); };
       i.onerror = function () { rej(new Error("That file is not a photo")); };
       i.src = u;
+    });
+  }
+
+  /* ---------- profile photo cropper (1:1, drag to move, pinch or slider to zoom, rotate) ---------- */
+  function openCropper(o) {
+    return new Promise(function (resolve) {
+      var src = o.d, sw = o.w, sh = o.h, LIM = 2400;
+      if (Math.max(sw, sh) > LIM) { // keep the working copy light for phones
+        var k0 = LIM / Math.max(sw, sh), wc = document.createElement("canvas");
+        wc.width = Math.round(sw * k0); wc.height = Math.round(sh * k0);
+        wc.getContext("2d").drawImage(o.d, 0, 0, wc.width, wc.height);
+        src = wc; sw = wc.width; sh = wc.height;
+      }
+      var rot = 0, s = 1, tx = 0, ty = 0, minS = 1, maxS = 6, W = 0, H = 0, F = 0, cx = 0, cy = 0, dpr = 1, done = false;
+      var pts = {}, npts = 0;
+
+      var canvas = h("canvas", { class: "jc-canvas" });
+      var ctx = canvas.getContext("2d");
+      var zoom = h("input", { type: "range", min: "0", max: "100", value: "0", step: "0.5", class: "jc-zoom", "aria-label": "Zoom" });
+      var rotBtn = h("button", { type: "button", class: "jc-ico", "aria-label": "Rotate", text: "\u21BB" });
+      var cancelBtn = h("button", { type: "button", class: "jc-txt", text: "Cancel" });
+      var doneBtn = h("button", { type: "button", class: "jc-txt jc-done", text: "Done" });
+      var modal = h("div", { class: "jc-modal", role: "dialog", "aria-modal": "true", "aria-label": "Crop photo" },
+        h("div", { class: "jc-title", text: "Move and zoom your photo" }),
+        h("div", { class: "jc-stage" }, canvas),
+        h("div", { class: "jc-zrow" }, h("span", { class: "jc-zs", text: "\u2212" }), zoom, h("span", { class: "jc-zs", text: "+" })),
+        h("div", { class: "jc-bar" }, cancelBtn, rotBtn, doneBtn));
+
+      function dims() { return rot % 2 ? [sh, sw] : [sw, sh]; }
+      function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+      function fit() {
+        var r = canvas.parentNode.getBoundingClientRect();
+        W = Math.max(1, r.width); H = Math.max(1, r.height);
+        dpr = Math.min(window.devicePixelRatio || 1, 3);
+        canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+        F = Math.max(120, Math.min(W - 24, H - 24, 520));
+        cx = W / 2; cy = H / 2;
+        var d = dims(); minS = F / Math.min(d[0], d[1]); maxS = minS * 6;
+        s = clamp(s, minS, maxS); limit(); draw();
+      }
+      function limit() {
+        var d = dims(), mx = Math.max(0, (d[0] * s - F) / 2), my = Math.max(0, (d[1] * s - F) / 2);
+        tx = clamp(tx, -mx, mx); ty = clamp(ty, -my, my);
+      }
+      function zoomAt(px, py, ns) {
+        ns = clamp(ns, minS, maxS);
+        var k = ns / s, ccx = cx + tx, ccy = cy + ty;
+        tx = px - (px - ccx) * k - cx; ty = py - (py - ccy) * k - cy; s = ns;
+      }
+      function paint(c, ox, oy, k) { // draws the photo with the current move, zoom and rotation
+        c.save(); c.translate(ox + tx * k, oy + ty * k); c.rotate(rot * Math.PI / 2); c.scale(s * k, s * k);
+        c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
+        c.drawImage(src, -sw / 2, -sh / 2); c.restore();
+      }
+      function draw() {
+        var fx = cx - F / 2, fy = cy - F / 2;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.fillStyle = "#05080c"; ctx.fillRect(0, 0, W, H);
+        paint(ctx, cx, cy, 1);
+        ctx.fillStyle = "rgba(0,0,0,.62)"; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.rect(fx, fy, F, F); ctx.fill("evenodd");
+        ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.beginPath();
+        for (var i = 1; i < 3; i++) {
+          ctx.moveTo(fx + F * i / 3, fy); ctx.lineTo(fx + F * i / 3, fy + F);
+          ctx.moveTo(fx, fy + F * i / 3); ctx.lineTo(fx + F, fy + F * i / 3);
+        }
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, F / 2, 0, Math.PI * 2); ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); // how it will look as a circle
+        ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.strokeRect(fx + .5, fy + .5, F - 1, F - 1);
+        var L = 22; ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.beginPath();
+        ctx.moveTo(fx, fy + L); ctx.lineTo(fx, fy); ctx.lineTo(fx + L, fy);
+        ctx.moveTo(fx + F - L, fy); ctx.lineTo(fx + F, fy); ctx.lineTo(fx + F, fy + L);
+        ctx.moveTo(fx, fy + F - L); ctx.lineTo(fx, fy + F); ctx.lineTo(fx + L, fy + F);
+        ctx.moveTo(fx + F - L, fy + F); ctx.lineTo(fx + F, fy + F); ctx.lineTo(fx + F, fy + F - L);
+        ctx.stroke();
+        zoom.value = String(maxS > minS ? (s - minS) / (maxS - minS) * 100 : 0);
+      }
+
+      function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+      canvas.addEventListener("pointerdown", function (e) {
+        e.preventDefault(); try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
+        if (!pts[e.pointerId]) npts++; pts[e.pointerId] = pos(e);
+      });
+      canvas.addEventListener("pointermove", function (e) {
+        var old = pts[e.pointerId]; if (!old) return; e.preventDefault();
+        var now = pos(e), ids = Object.keys(pts);
+        if (ids.length >= 2) {
+          var o2 = pts[ids[0] === String(e.pointerId) ? ids[1] : ids[0]];
+          var od = Math.hypot(old.x - o2.x, old.y - o2.y), nd = Math.hypot(now.x - o2.x, now.y - o2.y);
+          var om = { x: (old.x + o2.x) / 2, y: (old.y + o2.y) / 2 }, nm = { x: (now.x + o2.x) / 2, y: (now.y + o2.y) / 2 };
+          if (od > 8) zoomAt(nm.x, nm.y, s * nd / od);
+          tx += nm.x - om.x; ty += nm.y - om.y;
+        } else { tx += now.x - old.x; ty += now.y - old.y; }
+        pts[e.pointerId] = now; limit(); draw();
+      });
+      function up(e) { if (pts[e.pointerId]) { delete pts[e.pointerId]; npts--; } }
+      canvas.addEventListener("pointerup", up); canvas.addEventListener("pointercancel", up); canvas.addEventListener("lostpointercapture", up);
+      canvas.addEventListener("wheel", function (e) {
+        e.preventDefault(); var p = pos(e); zoomAt(p.x, p.y, s * Math.exp(-e.deltaY * 0.0015)); limit(); draw();
+      }, { passive: false });
+      zoom.addEventListener("input", function () { zoomAt(cx, cy, minS + (maxS - minS) * (parseFloat(zoom.value) / 100)); limit(); draw(); });
+      rotBtn.addEventListener("click", function () { rot = (rot + 1) % 4; tx = ty = 0; var d = dims(); minS = F / Math.min(d[0], d[1]); maxS = minS * 6; s = minS; draw(); });
+
+      var prevOverflow = document.body.style.overflow;
+      function finish(result) {
+        if (done) return; done = true;
+        window.removeEventListener("resize", fit); window.removeEventListener("keydown", onKey);
+        document.body.style.overflow = prevOverflow;
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+        resolve(result);
+      }
+      function onKey(e) { if (e.key === "Escape") finish(null); }
+      cancelBtn.addEventListener("click", function () { finish(null); });
+      doneBtn.addEventListener("click", function () {
+        var n = Math.max(240, Math.min(720, Math.round(F / s))), out = document.createElement("canvas");
+        out.width = out.height = n;
+        var oc = out.getContext("2d"), k = n / F; paint(oc, n / 2, n / 2, k);
+        finish({ d: out, w: n, h: n });
+      });
+      window.addEventListener("resize", fit); window.addEventListener("keydown", onKey);
+      document.body.style.overflow = "hidden";
+      document.body.appendChild(modal);
+      fit(); s = minS; tx = ty = 0; draw(); // first fit: whole short side fills the frame
+      doneBtn.focus();
     });
   }
 
@@ -639,19 +762,26 @@
   }
 
   function onPhoto(e) {
-    var f = e.target.files && e.target.files[0];
+    var input = e.target, f = input.files && input.files[0];
     if (!f) return;
     var note = document.getElementById("jl-note");
-    if (note) { note.textContent = "Preparing photo..."; note.className = "jl-msg"; }
-    toWebp(f).then(function (blob) {
-      if (!blob) throw new Error("Could not prepare the photo");
-      if (blob.size > 240 * 1024) throw new Error("That photo is too large, please pick another");
-      state.photoBlob = blob; markDirty();
-      if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
-      state.photoUrl = URL.createObjectURL(blob);
-      var img = root.querySelector(".jl-photo");
-      if (img) { img.classList.remove("jl-nophoto"); img.src = state.photoUrl; }
-      if (note) { note.textContent = "Photo ready (" + Math.round(blob.size / 1024) + " KB). Press Save changes."; }
+    if (note) { note.textContent = "Opening photo..."; note.className = "jl-msg"; }
+    loadImage(f).then(function (o) {
+      input.value = ""; // so the same photo can be picked again
+      return openCropper(o).then(function (cropped) {
+        if (!cropped) { if (note) note.textContent = ""; return; }
+        if (note) { note.textContent = "Preparing photo..."; note.className = "jl-msg"; }
+        return toWebp(cropped).then(function (blob) {
+          if (!blob) throw new Error("Could not prepare the photo");
+          if (blob.size > 240 * 1024) throw new Error("That photo is too large, please pick another");
+          state.photoBlob = blob; markDirty();
+          if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
+          state.photoUrl = URL.createObjectURL(blob);
+          var img = root.querySelector(".jl-photo");
+          if (img) { img.classList.remove("jl-nophoto"); img.src = state.photoUrl; }
+          if (note) { note.textContent = "Photo ready (" + Math.round(blob.size / 1024) + " KB). Press Save changes."; }
+        });
+      });
     }).catch(function (err) { if (note) { note.textContent = err.message; note.className = "jl-msg jl-bad"; } });
   }
 

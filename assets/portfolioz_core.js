@@ -94,10 +94,12 @@ function createProfile(ele,i) {
   <div class="bscrool">
   <div class="nameBox2 flex" onclick="doh2(this)">
     <h2 class="naming2">${ele.Name}</h2>
+    <div class="hnav"><button type="button" class="pn" data-dir="-1" aria-label="Previous classmate"><i class="svgBack"></i></button><button type="button" class="pn" data-dir="1" aria-label="Next classmate"><i class="svgBack"></i></button></div>
     <div class="back"><i class="svgBack"></i></div>
   </div>
   <div class="details">
   ${heroHtml(ele, photoList(ele, img, 240))}
+  ${nudgeHtml(ele)}
   ${galleryCard(ele)}
   ${ripDiv(ele.rip)}
   ${aboutCard(ele.Bio)}
@@ -117,9 +119,10 @@ function createProfile(ele,i) {
   ${saveDiv(ele)}
 </div>
   ${socialCard(ele)}
+  ${cityCard(ele)}
   <div class="card" ${styDisplay(ele.House)}>
      <h3>House</h3>
-     <img loading="lazy" class="hsimg" width="100%" src="${giti}tshirt/webp/${ele.House}.webp" alt="${ele.House} House Tshirt" />
+     <img loading="lazy" class="hsimg" width="100%" src="${giti}tshirt/webp/${ele.House}.webp" alt="${ele.House} House Tshirt" onload="this.classList.add('ld')" onerror="this.classList.add('ld')" />
      <p style="text-align:center">${ele.House}</p>
    </div>
   <div class="card" ${styDisplay(ele.Address, ele.PinCode, ele.District)}>
@@ -129,10 +132,9 @@ function createProfile(ele,i) {
   
 <div class="card">
     <h3>Share</h3>
-    <div class="w100">
-     <div class="w50" style="display:block" data-key="${nameDash}" onclick="share(this.dataset.key)"><i class="svg svgShare"></i>Share with others</div>
-  </div>
+    <div class="acts"><button type="button" class="act" data-key="${nameDash}" onclick="share(this.dataset.key)"><i class="ico svgShare"></i>Share with others</button></div>
 </div>
+<div class="pnav" hidden></div>
 <p class="visits" id="pv_${nameDash}" hidden>Total visits: <b></b></p>
     </div>
     </div>
@@ -180,7 +182,7 @@ function heroHtml(ele, photos) {
   var sub = [ele.CurrentStatus, hqOf(ele)].filter(Boolean).map(esc).join(" · ");
   var own = isOwn(ele), tag = ele.tag || (own && window.JNV_ME.role ? ({ owner: "Admin", admin: "Admin", core: "Core Member" })[window.JNV_ME.role] : "");
   var chips = (tag ? (own ? `<a class="chip chip-role chip-link" href="${esc(window.JNV_ADMIN || "/p/admin.html")}" title="Open the admin page">${esc(tag)}</a>` : `<span class="chip chip-role">${esc(tag)}</span>`) : "") +
-    [`Batch ${batch}`, ele.House ? ele.House + " House" : "", ele.City].filter(Boolean).map(function(c) { return `<span class="chip">${esc(c)}</span>`; }).join("");
+    [`Batch ${batch}`, ele.House ? ele.House + " House" : "", ele.City].filter(Boolean).map(function(c) { return c === "Batch " + batch ? `<span class="chip" onclick="doh2(this)">${esc(c)}</span>` : `<span class="chip">${esc(c)}</span>`; }).join("");
   var key = ele.Name.replace(/ /g, "_"), hint = mailOf(ele.EmailId), signed = !!window.JNV_SIGNED;
   var signBtn = !signed && hint ? `<button class="gsign" type="button" data-key="${esc(key)}" onclick="jnvSignIn(this)"><span class="gsign-ic"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg></span><span>Sign in with Google</span></button>` : "";
   var meBar = own ? `<div class="hero-me"><span class="me-on">Signed in</span><a class="me-edit" href="${esc(window.JNV_LOGIN || "/p/login.html")}">Edit my profile</a></div>` : "";
@@ -261,10 +263,47 @@ function visitCard(t) { // year | activity | JNV (district)
   }).join("")}</div>` : "");
 }
 //---------- photos: one fixed-size slider for the batch photo and for each profile ----------
+function loginUrl() { return window.JNV_LOGIN || "/p/login.html"; }
 function galleryCard(ele) {
-  var g = ele.gallery || [];
-  if (!g.length) return "";
-  return card("Photos", '<div class="pslider" data-photos="' + esc(JSON.stringify(g)) + '"></div>');
+  var g = ele.gallery || [], own = isOwn(ele);
+  var cta = own && g.length < 5 ? `<a class="act cta-add" href="${esc(loginUrl())}#photos"><i class="ico svgCam"></i>${g.length ? "Add more photos" : "Add your photos"}</a>` : "";
+  if (!g.length) return own ? card("Photos", `<p class="para">Share photos with your batchmates. Up to 5 pictures can appear on your profile.</p>${cta}`) : "";
+  return card("Photos", '<div class="pslider" data-photos="' + esc(JSON.stringify(g)) + '"></div>' + cta);
+}
+
+// ---- profile meter (own profile only) ----
+function nudgeHtml(ele) {
+  if (!isOwn(ele)) return "";
+  var soc = ["fb", "insta", "linkedin", "twitter", "youtube"].some(function(k) { return ele[k]; });
+  var items = [["About you", ele.Bio], ["City", ele.City], ["Birthday", ele.DOB], ["Blood group", ele.BloodGroup], ["Current status", ele.CurrentStatus],
+    ["Work", ele.WorkList], ["Education", ele.EduList], ["Skills", ele.Skills], ["Languages", ele.Languages], ["Memories", ele.Memories],
+    ["Social links", soc], ["Photos", (ele.gallery || []).length]];
+  var missing = items.filter(function(t) { return !t[1]; }).map(function(t) { return t[0]; });
+  if (!missing.length) return "";
+  var pct = Math.round((items.length - missing.length) / items.length * 100);
+  return `<div class="card nudge"><h3>Your profile</h3><div class="cb">
+    <p class="nudge-t"><b>${pct}%</b> complete</p>
+    <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
+    <p class="nudge-s">Add: ${missing.slice(0, 3).map(esc).join(", ")}${missing.length > 3 ? " and more" : ""}</p>
+    <a class="act act-p" href="${esc(loginUrl())}#edit">Complete my profile</a>
+  </div></div>`;
+}
+
+// ---- batchmates living in the same city (the city is already public on each profile) ----
+function cityKey(c) { return String(c || "").split(",").pop().trim().toLowerCase(); }
+function cityCard(ele) {
+  var k = cityKey(ele.City);
+  if (!k) return "";
+  if (!window.jnvCityIdx) {
+    var ix = window.jnvCityIdx = {};
+    all.forEach(function(p) { var q = cityKey(p.City); if (q) (ix[q] = ix[q] || []).push(p); });
+  }
+  var others = (window.jnvCityIdx[k] || []).filter(function(p) { return p !== ele; });
+  if (!others.length) return "";
+  var show = others.slice(0, 8), more = others.length - show.length;
+  return card("Also in " + esc(String(ele.City).split(",").pop().trim()), `<div class="chips">${show.map(function(p) {
+    return `<button type="button" class="chip chip-btn" data-go="${esc(nameKey(p))}">${esc(p.Name)}</button>`;
+  }).join("")}${more > 0 ? `<span class="chip">+${more} more</span>` : ""}</div>`);
 }
 function initProfileSliders(root) {
   [].forEach.call(root.querySelectorAll(".pslider[data-photos]"), function (el) {
@@ -384,6 +423,8 @@ function buildSlider(host, urls) {
   var bg = document.createElement("div"); bg.className = "sl-bg";
   var img = document.createElement("img"); img.className = "sl-img"; img.alt = ""; img.decoding = "async";
   stage.appendChild(bg); stage.appendChild(img); host.appendChild(stage);
+  img.addEventListener("load", function () { stage.classList.add("ld"); });
+  img.addEventListener("error", function () { stage.classList.add("ld"); });
   var cur = 0, timer = null, busy = false, seen = false, many = urls.length > 1;
   function paint(u) { img.src = u; bg.style.backgroundImage = 'url("' + u + '")'; }
   paint(urls[0]);
@@ -450,13 +491,12 @@ function socialCard(ele) {
 }
 
 function phnDiv(a) {
- if(a) return `<div class="w100">
-   <p><span class="qes">Phone No. :</span><span class="ans">${a}</span></p>
-   <div class="w100 flex">
-    <div class="w50" onclick="location.href='tel:${a}'"><i class="svg svgCall"></i></div>
-    <div class="w50" onclick="location.href='whatsapp://send?phone=${(Number(a).toString().length<=10)? '91':''}${a}'"><i class="svg svgWp"></i></div>
-  </div></div>`
-else return "";
+  if (!a) return "";
+  var wa = (Number(a).toString().length <= 10 ? "91" : "") + a;
+  return `<div class="w100">
+   <p><span class="qes">Phone No. :</span><span class="ans">${esc(a)}</span></p>
+   <div class="acts"><a class="act act-p" href="tel:${esc(a)}"><i class="ico svgCall"></i>Call</a><a class="act" href="whatsapp://send?phone=${esc(wa)}"><i class="ico svgWp"></i>WhatsApp</a></div>
+  </div>`;
 }
 
 function ripDiv(a) {
@@ -500,7 +540,7 @@ function addrHtml(ele) {
 
 function saveDiv(ele) {
   if (!ele.Phone && !ele.Phone2) return "";
-  return `<div class="w100 flex"><div class="w50" style="display:block" data-key="${nameKey(ele)}" onclick="downVcardi(this.dataset.key)"><i class="svg svgContact"></i>Save as Contact</div></div>`;
+  return `<div class="acts"><button type="button" class="act" data-key="${nameKey(ele)}" onclick="downVcardi(this.dataset.key)"><i class="ico svgContact"></i>Save as Contact</button></div>`;
 }
 
 function styDisplay(a,b,c) {
@@ -525,6 +565,7 @@ bgInsert.innerHTML =`
     <svg class="i-list" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="2"/><rect x="3" y="10" width="18" height="4" rx="2"/><rect x="3" y="16" width="18" height="4" rx="2"/></svg>
   </button>
 </div>
+<input type="search" id="jnvSearch" class="tb-search" placeholder="Search name, city, work or college" aria-label="Search alumni" autocomplete="off" enterkeyhint="search">
 <div class="tb-filters">
   <select onchange="find(event)" id="to-find" aria-label="Filter alumni">
      <option disabled selected value="a">Filter</option>
@@ -537,6 +578,33 @@ bgInsert.innerHTML =`
 </div>
  `;
 main.insertBefore(bgInsert, main.firstChild);
+
+//birthdays in the next 7 days, tap a name to open the profile
+function jnvBirthdays() {
+  var now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), out = [];
+  function at(yr, mo, d) { var dt = new Date(yr, mo, d); return (mo === 1 && d === 29 && dt.getMonth() !== 1) ? new Date(yr, 1, 28) : dt; }
+  all.forEach(function(p) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.DOB || "");
+    if (!m) return;
+    var mo = Number(m[2]) - 1, d = Number(m[3]), dt = at(t0.getFullYear(), mo, d);
+    if (dt < t0) dt = at(t0.getFullYear() + 1, mo, d);
+    var diff = Math.round((dt - t0) / 86400000);
+    if (diff <= 6) out.push({ p: p, diff: diff, dt: dt });
+  });
+  return out.sort(function(a, b) { return a.diff - b.diff || a.p.Name.localeCompare(b.p.Name); });
+}
+(function() {
+  var b = jnvBirthdays();
+  if (!b.length) return;
+  var D = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var box = document.createElement("section");
+  box.className = "cele";
+  box.innerHTML = "<h3>\uD83C\uDF82 Birthdays this week</h3><div class=\"chips\">" + b.slice(0, 8).map(function(r) {
+    var when = r.diff === 0 ? "Today" : D[r.dt.getDay()] + " " + r.dt.getDate() + " " + M[r.dt.getMonth()];
+    return '<button type="button" class="chip chip-btn' + (r.diff === 0 ? " chip-today" : "") + '" data-go="' + esc(nameKey(r.p)) + '">' + when + " \u00B7 " + esc(r.p.Name) + "</button>";
+  }).join("") + (b.length > 8 ? '<span class="chip">+' + (b.length - 8) + " more</span>" : "") + "</div>";
+  main.insertBefore(box, bgInsert);
+})();
 
 //list or grid view, remembered per device
 (function(){
@@ -559,6 +627,30 @@ main.insertBefore(bgInsert, main.firstChild);
 getFind= document.querySelector('#getFind')
 bgpl= document.getElementById('bgpl')
 
+var jnvF = null;   // the filter picked in the two drop-downs: { k: field, v: value }
+var jnvQ = "";     // the words typed in the search box
+function qText(p) { // what the search looks at: name, city, house, status, skills, work and study places (never phone or email)
+  var c = window.jnvQC = window.jnvQC || {}, k = nameKey(p);
+  return c[k] || (c[k] = [p.Name, p.City, p.House, p.CurrentStatus, p.Skills, p.Languages, p.WorkList, p.EduList, p.Achievements].join(" ").replace(/[|~,]/g, " ").toLowerCase());
+}
+function renderList() {
+  var list = all;
+  if (jnvF) list = list.filter(function(p) { return p[jnvF.k] === jnvF.v; });
+  var words = jnvQ.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length) list = list.filter(function(p) { var t = qText(p); return words.every(function(w) { return t.indexOf(w) > -1; }); });
+  var tags = [];
+  if (jnvF) tags.push(jnvF.k + ": " + jnvF.v);
+  if (words.length) tags.push("\u201C" + esc(jnvQ.trim()) + "\u201D");
+  bgpl.innerHTML = tags.length ? "<strong>" + list.length + "</strong> of " + all.length + " Alumni (" + tags.join(", ") + ")" : bgplText;
+  insertProfiles.innerHTML = "";
+  if (!list.length) { insertProfiles.innerHTML = '<p class="empty">No alumni found. Try fewer words or press Clear.</p>'; return; }
+  list.forEach(createProfile);
+}
+(function() {
+  var box = document.getElementById("jnvSearch"), t = null;
+  box.addEventListener("input", function() { clearTimeout(t); t = setTimeout(function() { jnvQ = box.value; renderList(); }, 180); });
+})();
+
 function find(e) {
   var findvalue = e.target.value
   getFind.style.display = 'block'
@@ -570,24 +662,21 @@ function find(e) {
        sel.value = findSort[k]
        getFind.appendChild(sel)
     }
-  insertProfiles.innerHTML=''
-  all.forEach(createProfile);
+  jnvF = null;
+  renderList();
 }
 
 function ckFind(ev) {
- var toFind = ev.target[0].value;
-  filter = all.filter(person => person[toFind] === ev.target.value)
-  bgpl.innerHTML = "<strong>" + filter.length + "</strong> of " + all.length + " Alumni (" + ev.target[0].value + ": " + ev.target.value + ")"
-  insertProfiles.innerHTML=''
-  filter.forEach(createProfile);
-  }
+  jnvF = { k: ev.target[0].value, v: ev.target.value };
+  renderList();
+}
 
 function erase() {
-  bgpl.innerHTML= bgplText
-  getFind.style.display= 'none'
+  jnvF = null; jnvQ = "";
+  document.getElementById("jnvSearch").value = "";
+  getFind.style.display = 'none'
   document.getElementById('to-find').value = "a"
-  insertProfiles.innerHTML=''
-  all.forEach(createProfile);
+  renderList();
 }
 
 function share(key) {
@@ -627,21 +716,59 @@ function downVcardi(key) {
 }
 
 //---------- open / close a profile (works on Android, iOS and desktop) ----------
-function openProfile(vessel) {
+function openProfile(vessel, replace, dir) { // replace: keep one history entry; dir: 1 next, -1 previous (sets the slide direction)
   var d = vessel.querySelector(".contentBox");
   vessel.classList.remove("collapsed");
   d.removeAttribute("hidden");
+  d.classList.remove("in-next", "in-prev");
+  if (dir) d.classList.add(dir > 0 ? "in-next" : "in-prev");
   d.classList.add("active");
   document.body.style.overflow = "hidden";
-  if (location.hash !== "#" + d.id) history.pushState({ jnvOpen: 1 }, "", "#" + d.id);
+  if (location.hash !== "#" + d.id) {
+    if (replace) history.replaceState(history.state, "", "#" + d.id);
+    else history.pushState({ jnvOpen: 1 }, "", "#" + d.id);
+  }
+  fillNav(vessel);
   ppVisit(d.id);
 }
 function closeProfile(vessel) {
   var d = vessel.querySelector(".contentBox");
   vessel.classList.add("collapsed");
   d.setAttribute("hidden", "until-found");
-  d.classList.remove("active");
+  d.classList.remove("active", "in-next", "in-prev");
   document.body.style.overflow = "scroll";
+}
+
+//previous / next classmate in the list that is on screen
+function sibling(v, dir) { var n = dir > 0 ? v.nextElementSibling : v.previousElementSibling; return n && n.classList.contains("vessels") ? n : null; }
+function fillNav(v) {
+  var prev = sibling(v, -1), next = sibling(v, 1);
+  [].forEach.call(v.querySelectorAll(".pn"), function(b) { b.disabled = Number(b.dataset.dir) < 0 ? !prev : !next; });
+  var f = v.querySelector(".pnav");
+  if (!f) return;
+  function nm(x) { var h = x && x.querySelector(".naming"); return h ? esc(h.textContent.trim()) : ""; }
+  f.innerHTML = (prev ? `<button type="button" class="pn-foot" data-dir="-1"><span>\u2039 Previous</span><b>${nm(prev)}</b></button>` : "<span></span>") +
+    (next ? `<button type="button" class="pn-foot pn-r" data-dir="1"><span>Next \u203A</span><b>${nm(next)}</b></button>` : "<span></span>");
+  f.hidden = !prev && !next;
+}
+function goSibling(dir) {
+  var cur = document.querySelector(".contentBox.active");
+  if (!cur) return;
+  var v = cur.closest(".vessels"), t = sibling(v, dir);
+  if (!t) return;
+  closeProfile(v);
+  openProfile(t, true, dir);
+  try { t.querySelector(".nameBox").scrollIntoView({ block: "center" }); } catch (e) {} // the list behind stays near this person
+}
+//open a profile by its key (birthday names, "also in your city" names)
+function jnvGo(key) {
+  var cur = document.querySelector(".contentBox.active");
+  var el = document.getElementById(key);
+  if (!el) { erase(); el = document.getElementById(key); } // hidden by a filter: show everyone again
+  if (!el) return;
+  var v = el.closest(".vessels");
+  if (cur && document.body.contains(cur) && cur !== el) closeProfile(cur.closest(".vessels"));
+  openProfile(v, !!cur);
 }
 
 // one listener for all tiles, including tiles re-created by the filters
@@ -652,6 +779,33 @@ insertProfiles.addEventListener("click", function (e) {
   var v = a.closest(".vessels");
   if (v.classList.contains("collapsed")) openProfile(v); else closeProfile(v);
 });
+
+// arrows and footer buttons (capture phase, so the header's own tap-to-go-back does not run)
+insertProfiles.addEventListener("click", function (e) {
+  var b = e.target.closest(".pn, .pn-foot");
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  if (!b.disabled) goSibling(Number(b.dataset.dir));
+}, true);
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-go]");
+  if (!b) return;
+  e.preventDefault(); jnvGo(b.getAttribute("data-go"));
+});
+// swipe left / right on an open profile = next / previous classmate (not on the photo slider, and not from the screen edge where the browser's own back swipe starts)
+(function () {
+  var sx = 0, sy = 0, st = 0, ok = false;
+  insertProfiles.addEventListener("touchstart", function (e) {
+    var t = e.touches[0];
+    ok = e.touches.length === 1 && !!document.querySelector(".contentBox.active") && !e.target.closest(".pslider, .gs-box, input, textarea, select") && t.clientX > 28;
+    sx = t.clientX; sy = t.clientY; st = Date.now();
+  }, { passive: true });
+  insertProfiles.addEventListener("touchend", function (e) {
+    if (!ok) return; ok = false;
+    var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Date.now() - st < 800 && Math.abs(dx) >= 90 && Math.abs(dx) >= 2 * Math.abs(dy)) goSibling(dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
 
 // Chrome find-in-page reveal
 insertProfiles.addEventListener("beforematch", function (e) {

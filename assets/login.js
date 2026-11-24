@@ -703,6 +703,28 @@
       }
       function endAnim() { if (anim) { cancelAnimationFrame(anim.raf); var a = anim; step(a.t0 + a.dur); } }
 
+      // Android Chrome only: start with the square placed around the biggest face
+      function autoFrameFace() {
+        if (!("FaceDetector" in window)) return; // iPhone and others: keep the centred crop
+        try {
+          new FaceDetector({ fastMode: true, maxDetectedFaces: 5 }).detect(src).then(function (faces) {
+            // skip if nothing was found, or the person already moved, zoomed or rotated
+            if (!faces.length || done || rot || tx || ty || s !== minS) return;
+            var f = faces.reduce(function (a, b) {
+              var A = a.boundingBox, B = b.boundingBox;
+              return B.width * B.height > A.width * A.height ? b : a; // biggest face
+            }).boundingBox;
+            var side = Math.max(f.width, f.height) * 2.4;     // face plus hair and shoulders
+            var fx = f.x + f.width / 2;
+            var fy = f.y + f.height / 2 + f.height * 0.15;    // a little lower, to include shoulders
+            s = clamp(F0 / side, minS, maxS);                 // zoom so that area fills the square
+            tx = (sw / 2 - fx) * s;                           // move the face to the middle
+            ty = (sh / 2 - fy) * s;
+            limit(); draw();
+          }).catch(function () {});
+        } catch (e) {}
+      }
+
       /* ----- touch, mouse and pen ----- */
       function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
       canvas.addEventListener("pointerdown", function (e) {
@@ -766,6 +788,7 @@
       document.body.style.overflow = "hidden";
       document.body.appendChild(modal);
       fit(); s = minS; tx = ty = 0; draw(); // first view: the short side of the photo fills the square
+      autoFrameFace();
       doneBtn.focus();
     });
   }

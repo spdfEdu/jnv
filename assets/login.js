@@ -565,7 +565,9 @@
     });
   }
 
-  /* ---------- profile photo cropper (1:1, drag to move, pinch or slider to zoom, rotate) ---------- */
+  /* ---------- profile photo cropper (1:1) ----------
+     Drag inside = move the photo. Pinch / slider / wheel = zoom. Drag a corner or an edge of the square = make the
+     crop smaller; when you let go, the photo zooms in smoothly so that crop fills the screen. Rotate button = 90 degrees. */
   function openCropper(o) {
     return new Promise(function (resolve) {
       var src = o.d, sw = o.w, sh = o.h, LIM = 2400;
@@ -575,8 +577,9 @@
         wc.getContext("2d").drawImage(o.d, 0, 0, wc.width, wc.height);
         src = wc; sw = wc.width; sh = wc.height;
       }
-      var rot = 0, s = 1, tx = 0, ty = 0, minS = 1, maxS = 6, W = 0, H = 0, F = 0, cx = 0, cy = 0, dpr = 1, done = false;
-      var pts = {}, npts = 0;
+      // s = screen px per photo px; (tx,ty) = photo centre relative to the stage centre; the crop square is (fcx,fcy,fsz)
+      var rot = 0, s = 1, tx = 0, ty = 0, minS = 1, maxS = 12, W = 0, H = 0, F0 = 0, cx = 0, cy = 0, fcx = 0, fcy = 0, fsz = 0, dpr = 1, done = false;
+      var pts = {}, drag = null, anim = null;
 
       var canvas = h("canvas", { class: "jc-canvas" });
       var ctx = canvas.getContext("2d");
@@ -585,25 +588,27 @@
       var cancelBtn = h("button", { type: "button", class: "jc-txt", text: "Cancel" });
       var doneBtn = h("button", { type: "button", class: "jc-txt jc-done", text: "Done" });
       var modal = h("div", { class: "jc-modal", role: "dialog", "aria-modal": "true", "aria-label": "Crop photo" },
-        h("div", { class: "jc-title", text: "Move and zoom your photo" }),
+        h("div", { class: "jc-title", text: "Move and zoom, or drag the corners to crop" }),
         h("div", { class: "jc-stage" }, canvas),
         h("div", { class: "jc-zrow" }, h("span", { class: "jc-zs", text: "\u2212" }), zoom, h("span", { class: "jc-zs", text: "+" })),
         h("div", { class: "jc-bar" }, cancelBtn, rotBtn, doneBtn));
 
       function dims() { return rot % 2 ? [sh, sw] : [sw, sh]; }
       function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+      function setBase() { var d = dims(); minS = F0 / Math.min(d[0], d[1]); maxS = minS * 12; }
+      function resetFrame() { fcx = cx; fcy = cy; fsz = F0; }
       function fit() {
+        endAnim(); drag = null; pts = {};
         var r = canvas.parentNode.getBoundingClientRect();
         W = Math.max(1, r.width); H = Math.max(1, r.height);
         dpr = Math.min(window.devicePixelRatio || 1, 3);
         canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-        F = Math.max(120, Math.min(W - 24, H - 24, 520));
-        cx = W / 2; cy = H / 2;
-        var d = dims(); minS = F / Math.min(d[0], d[1]); maxS = minS * 6;
+        F0 = Math.max(120, Math.min(W - 24, H - 24, 520));
+        cx = W / 2; cy = H / 2; resetFrame(); setBase();
         s = clamp(s, minS, maxS); limit(); draw();
       }
-      function limit() {
-        var d = dims(), mx = Math.max(0, (d[0] * s - F) / 2), my = Math.max(0, (d[1] * s - F) / 2);
+      function limit() { // the photo must always cover the crop square
+        var d = dims(), mx = Math.max(0, (d[0] * s - fsz) / 2), my = Math.max(0, (d[1] * s - fsz) / 2);
         tx = clamp(tx, -mx, mx); ty = clamp(ty, -my, my);
       }
       function zoomAt(px, py, ns) {
@@ -617,56 +622,131 @@
         c.drawImage(src, -sw / 2, -sh / 2); c.restore();
       }
       function draw() {
-        var fx = cx - F / 2, fy = cy - F / 2;
+        var fx = fcx - fsz / 2, fy = fcy - fsz / 2;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.fillStyle = "#05080c"; ctx.fillRect(0, 0, W, H);
         paint(ctx, cx, cy, 1);
-        ctx.fillStyle = "rgba(0,0,0,.62)"; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.rect(fx, fy, F, F); ctx.fill("evenodd");
+        ctx.fillStyle = "rgba(0,0,0,.62)"; ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.rect(fx, fy, fsz, fsz); ctx.fill("evenodd");
         ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.beginPath();
         for (var i = 1; i < 3; i++) {
-          ctx.moveTo(fx + F * i / 3, fy); ctx.lineTo(fx + F * i / 3, fy + F);
-          ctx.moveTo(fx, fy + F * i / 3); ctx.lineTo(fx + F, fy + F * i / 3);
+          ctx.moveTo(fx + fsz * i / 3, fy); ctx.lineTo(fx + fsz * i / 3, fy + fsz);
+          ctx.moveTo(fx, fy + fsz * i / 3); ctx.lineTo(fx + fsz, fy + fsz * i / 3);
         }
         ctx.stroke();
-        ctx.beginPath(); ctx.arc(cx, cy, F / 2, 0, Math.PI * 2); ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); // how it will look as a circle
-        ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.strokeRect(fx + .5, fy + .5, F - 1, F - 1);
-        var L = 22; ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.beginPath();
-        ctx.moveTo(fx, fy + L); ctx.lineTo(fx, fy); ctx.lineTo(fx + L, fy);
-        ctx.moveTo(fx + F - L, fy); ctx.lineTo(fx + F, fy); ctx.lineTo(fx + F, fy + L);
-        ctx.moveTo(fx, fy + F - L); ctx.lineTo(fx, fy + F); ctx.lineTo(fx + L, fy + F);
-        ctx.moveTo(fx + F - L, fy + F); ctx.lineTo(fx + F, fy + F); ctx.lineTo(fx + F, fy + F - L);
+        ctx.beginPath(); ctx.arc(fcx, fcy, fsz / 2, 0, Math.PI * 2); ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]); // how it will look as a circle
+        ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.strokeRect(fx + .5, fy + .5, fsz - 1, fsz - 1);
+        var L = Math.min(22, fsz / 4), M = Math.min(13, fsz / 8), x2 = fx + fsz, y2 = fy + fsz;
+        ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.beginPath();
+        ctx.moveTo(fx, fy + L); ctx.lineTo(fx, fy); ctx.lineTo(fx + L, fy);                 // corners
+        ctx.moveTo(x2 - L, fy); ctx.lineTo(x2, fy); ctx.lineTo(x2, fy + L);
+        ctx.moveTo(fx, y2 - L); ctx.lineTo(fx, y2); ctx.lineTo(fx + L, y2);
+        ctx.moveTo(x2 - L, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - L);
+        ctx.moveTo(fcx - M, fy); ctx.lineTo(fcx + M, fy); ctx.moveTo(fcx - M, y2); ctx.lineTo(fcx + M, y2); // edge handles
+        ctx.moveTo(fx, fcy - M); ctx.lineTo(fx, fcy + M); ctx.moveTo(x2, fcy - M); ctx.lineTo(x2, fcy + M);
         ctx.stroke();
         zoom.value = String(maxS > minS ? (s - minS) / (maxS - minS) * 100 : 0);
       }
 
+      /* ----- dragging a corner or an edge of the square ----- */
+      function hit(p) {
+        var L = fcx - fsz / 2, T = fcy - fsz / 2, R = L + fsz, B = T + fsz, rc = Math.min(36, fsz / 3), re = Math.min(22, fsz / 5);
+        var cs = [[L, T, -1, -1], [R, T, 1, -1], [L, B, -1, 1], [R, B, 1, 1]];
+        for (var i = 0; i < 4; i++) {
+          if (Math.hypot(p.x - cs[i][0], p.y - cs[i][1]) <= rc) {
+            return { t: "c", dx: cs[i][2], dy: cs[i][3], ax: fcx - cs[i][2] * fsz / 2, ay: fcy - cs[i][3] * fsz / 2, ox: p.x - cs[i][0], oy: p.y - cs[i][1] };
+          }
+        }
+        if (p.x >= L && p.x <= R) {
+          if (Math.abs(p.y - T) <= re) return { t: "e", nx: 0, ny: -1, ay: B, xc: fcx, ox: 0, oy: p.y - T };
+          if (Math.abs(p.y - B) <= re) return { t: "e", nx: 0, ny: 1, ay: T, xc: fcx, ox: 0, oy: p.y - B };
+        }
+        if (p.y >= T && p.y <= B) {
+          if (Math.abs(p.x - L) <= re) return { t: "e", nx: -1, ny: 0, ax: R, yc: fcy, ox: p.x - L, oy: 0 };
+          if (Math.abs(p.x - R) <= re) return { t: "e", nx: 1, ny: 0, ax: L, yc: fcy, ox: p.x - R, oy: 0 };
+        }
+        return null;
+      }
+      function resizeTo(p) {
+        var qx = p.x - drag.ox, qy = p.y - drag.oy, d = dims(), hw = d[0] * s / 2, hh = d[1] * s / 2;
+        var iL = cx + tx - hw, iR = cx + tx + hw, iT = cy + ty - hh, iB = cy + ty + hh, minF = Math.max(64, F0 / 6), size, mx;
+        if (drag.t === "c") {
+          size = Math.max((qx - drag.ax) * drag.dx, (qy - drag.ay) * drag.dy);
+          mx = Math.min(F0, drag.dx > 0 ? iR - drag.ax : drag.ax - iL, drag.dy > 0 ? iB - drag.ay : drag.ay - iT);
+          size = clamp(size, minF, Math.max(minF, mx));
+          fcx = drag.ax + drag.dx * size / 2; fcy = drag.ay + drag.dy * size / 2;
+        } else if (drag.nx) {
+          size = (qx - drag.ax) * drag.nx;
+          mx = Math.min(F0, drag.nx > 0 ? iR - drag.ax : drag.ax - iL, 2 * Math.min(drag.yc - iT, iB - drag.yc));
+          size = clamp(size, minF, Math.max(minF, mx));
+          fcx = drag.ax + drag.nx * size / 2; fcy = drag.yc;
+        } else {
+          size = (qy - drag.ay) * drag.ny;
+          mx = Math.min(F0, drag.ny > 0 ? iB - drag.ay : drag.ay - iT, 2 * Math.min(drag.xc - iL, iR - drag.xc));
+          size = clamp(size, minF, Math.max(minF, mx));
+          fcy = drag.ay + drag.ny * size / 2; fcx = drag.xc;
+        }
+        fsz = size;
+      }
+      function settle() { // zoom in smoothly so the chosen square fills the screen
+        var kf = Math.max(1, F0 / fsz);
+        if (s * kf > maxS) kf = Math.max(1, maxS / s);
+        anim = { t0: performance.now(), dur: 280, s0: s, cx0: cx + tx, cy0: cy + ty, fx0: fcx, fy0: fcy, fz0: fsz, kf: kf, raf: 0 };
+        anim.raf = requestAnimationFrame(step);
+      }
+      function step(now) {
+        if (!anim) return;
+        var a = anim, t = clamp((now - a.t0) / a.dur, 0, 1), e = 1 - Math.pow(1 - t, 3), k = Math.pow(a.kf, e);
+        fcx = a.fx0 + (cx - a.fx0) * e; fcy = a.fy0 + (cy - a.fy0) * e; fsz = a.fz0 * k; s = a.s0 * k;
+        tx = fcx + (a.cx0 - a.fx0) * k - cx; ty = fcy + (a.cy0 - a.fy0) * k - cy;
+        if (t >= 1) { fcx = cx; fcy = cy; anim = null; limit(); } else a.raf = requestAnimationFrame(step);
+        draw();
+      }
+      function endAnim() { if (anim) { cancelAnimationFrame(anim.raf); var a = anim; step(a.t0 + a.dur); } }
+
+      /* ----- touch, mouse and pen ----- */
       function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
       canvas.addEventListener("pointerdown", function (e) {
-        e.preventDefault(); try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
-        if (!pts[e.pointerId]) npts++; pts[e.pointerId] = pos(e);
+        e.preventDefault(); endAnim();
+        if (drag) return;
+        try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
+        var p = pos(e), hd = Object.keys(pts).length ? null : hit(p);
+        if (hd) { hd.id = e.pointerId; drag = hd; return; }
+        pts[e.pointerId] = p;
       });
       canvas.addEventListener("pointermove", function (e) {
-        var old = pts[e.pointerId]; if (!old) return; e.preventDefault();
-        var now = pos(e), ids = Object.keys(pts);
+        var p = pos(e);
+        if (drag) { if (e.pointerId === drag.id) { e.preventDefault(); resizeTo(p); draw(); } return; }
+        var old = pts[e.pointerId];
+        if (!old) { // mouse hovering: show which handle is under the cursor
+          if (e.pointerType === "mouse") { var hd = hit(p); canvas.style.cursor = !hd ? "" : hd.t === "c" ? (hd.dx * hd.dy > 0 ? "nwse-resize" : "nesw-resize") : (hd.nx ? "ew-resize" : "ns-resize"); }
+          return;
+        }
+        e.preventDefault();
+        var ids = Object.keys(pts);
         if (ids.length >= 2) {
           var o2 = pts[ids[0] === String(e.pointerId) ? ids[1] : ids[0]];
-          var od = Math.hypot(old.x - o2.x, old.y - o2.y), nd = Math.hypot(now.x - o2.x, now.y - o2.y);
-          var om = { x: (old.x + o2.x) / 2, y: (old.y + o2.y) / 2 }, nm = { x: (now.x + o2.x) / 2, y: (now.y + o2.y) / 2 };
+          var od = Math.hypot(old.x - o2.x, old.y - o2.y), nd = Math.hypot(p.x - o2.x, p.y - o2.y);
+          var om = { x: (old.x + o2.x) / 2, y: (old.y + o2.y) / 2 }, nm = { x: (p.x + o2.x) / 2, y: (p.y + o2.y) / 2 };
           if (od > 8) zoomAt(nm.x, nm.y, s * nd / od);
           tx += nm.x - om.x; ty += nm.y - om.y;
-        } else { tx += now.x - old.x; ty += now.y - old.y; }
-        pts[e.pointerId] = now; limit(); draw();
+        } else { tx += p.x - old.x; ty += p.y - old.y; }
+        pts[e.pointerId] = p; limit(); draw();
       });
-      function up(e) { if (pts[e.pointerId]) { delete pts[e.pointerId]; npts--; } }
-      canvas.addEventListener("pointerup", up); canvas.addEventListener("pointercancel", up); canvas.addEventListener("lostpointercapture", up);
+      function up(e) {
+        if (drag && e.pointerId === drag.id) { drag = null; settle(); return; }
+        delete pts[e.pointerId];
+      }
+      canvas.addEventListener("pointerup", up); canvas.addEventListener("pointercancel", up);
       canvas.addEventListener("wheel", function (e) {
-        e.preventDefault(); var p = pos(e); zoomAt(p.x, p.y, s * Math.exp(-e.deltaY * 0.0015)); limit(); draw();
+        e.preventDefault(); endAnim(); var p = pos(e); zoomAt(p.x, p.y, s * Math.exp(-e.deltaY * 0.0015)); limit(); draw();
       }, { passive: false });
-      zoom.addEventListener("input", function () { zoomAt(cx, cy, minS + (maxS - minS) * (parseFloat(zoom.value) / 100)); limit(); draw(); });
-      rotBtn.addEventListener("click", function () { rot = (rot + 1) % 4; tx = ty = 0; var d = dims(); minS = F / Math.min(d[0], d[1]); maxS = minS * 6; s = minS; draw(); });
+      zoom.addEventListener("input", function () { endAnim(); zoomAt(cx, cy, minS + (maxS - minS) * (parseFloat(zoom.value) / 100)); limit(); draw(); });
+      rotBtn.addEventListener("click", function () { endAnim(); rot = (rot + 1) % 4; tx = ty = 0; resetFrame(); setBase(); s = minS; draw(); });
 
       var prevOverflow = document.body.style.overflow;
       function finish(result) {
         if (done) return; done = true;
+        if (anim) cancelAnimationFrame(anim.raf);
         window.removeEventListener("resize", fit); window.removeEventListener("keydown", onKey);
         document.body.style.overflow = prevOverflow;
         if (modal.parentNode) modal.parentNode.removeChild(modal);
@@ -675,15 +755,17 @@
       function onKey(e) { if (e.key === "Escape") finish(null); }
       cancelBtn.addEventListener("click", function () { finish(null); });
       doneBtn.addEventListener("click", function () {
-        var n = Math.max(240, Math.min(720, Math.round(F / s))), out = document.createElement("canvas");
+        if (drag) { drag = null; settle(); }
+        endAnim();
+        var n = Math.max(240, Math.min(720, Math.round(fsz / s))), out = document.createElement("canvas");
         out.width = out.height = n;
-        var oc = out.getContext("2d"), k = n / F; paint(oc, n / 2, n / 2, k);
+        paint(out.getContext("2d"), n / 2, n / 2, n / fsz);
         finish({ d: out, w: n, h: n });
       });
       window.addEventListener("resize", fit); window.addEventListener("keydown", onKey);
       document.body.style.overflow = "hidden";
       document.body.appendChild(modal);
-      fit(); s = minS; tx = ty = 0; draw(); // first fit: whole short side fills the frame
+      fit(); s = minS; tx = ty = 0; draw(); // first view: the short side of the photo fills the square
       doneBtn.focus();
     });
   }

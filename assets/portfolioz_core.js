@@ -272,6 +272,7 @@ function initProfileSliders(root) {
     el.removeAttribute("data-photos");
   });
 }
+var jnvSkipPop = 0; // popstate events we caused ourselves (closing the photo with X) and must ignore
 function jnvLightbox(list, i) {
   var lb = document.createElement("div");
   lb.className = "jn-lb"; lb.setAttribute("role", "dialog"); lb.setAttribute("aria-modal", "true"); lb.setAttribute("aria-label", "Photo");
@@ -293,7 +294,13 @@ function jnvLightbox(list, i) {
     limit(); put(anim);
   }
   function show(k) { i = (k + list.length) % list.length; s = 1; tx = 0; ty = 0; put(false); img.src = list[i]; }
-  function close() { document.removeEventListener("keydown", key); document.body.style.overflow = prevOverflow; lb.remove(); }
+  var closed = false;
+  function close(fromPop) { // fromPop: the phone Back button already removed the history entry
+    if (closed) return; closed = true;
+    document.removeEventListener("keydown", key); document.body.style.overflow = prevOverflow; lb.remove();
+    if (fromPop !== true && history.state && history.state.jnvLb) { jnvSkipPop++; history.back(); } // tidy up the entry added on open
+  }
+  lb._close = close;
   function key(e) { if (e.key === "Escape") close(); else if (e.key === "ArrowLeft" && list.length > 1) show(i - 1); else if (e.key === "ArrowRight" && list.length > 1) show(i + 1); else if (e.key === "+" || e.key === "=") zoomTo(s * 1.4, lb.clientWidth / 2, lb.clientHeight / 2, true); else if (e.key === "-") zoomTo(s / 1.4, lb.clientWidth / 2, lb.clientHeight / 2, true); }
   function dist() { var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
   function mid() { var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
@@ -357,6 +364,7 @@ function jnvLightbox(list, i) {
   var prevOverflow = document.body.style.overflow;
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", key);
+  history.pushState({ jnvLb: 1 }, ""); // so the Back button closes the photo, not the page
   show(i); document.body.appendChild(lb);
 }
 // the profile photo on a profile page opens in the same zoomable viewer
@@ -661,8 +669,11 @@ function doh2(el) {
   }
 }
 
-// phone Back button / swipe-back closes the open profile
+// phone Back button / swipe-back: closes the photo if one is open, otherwise the open profile
 window.addEventListener("popstate", function () {
+  if (jnvSkipPop > 0) { jnvSkipPop--; return; }           // we closed the photo ourselves
+  var lb = document.querySelector(".jn-lb");
+  if (lb && lb._close) { lb._close(true); return; }        // Back closes the photo first, the profile stays open
   var d = document.querySelector(".contentBox.active");
   if (d) closeProfile(d.closest(".vessels"));
 });

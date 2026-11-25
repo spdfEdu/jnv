@@ -94,7 +94,6 @@ function createProfile(ele,i) {
   <div class="bscrool">
   <div class="nameBox2 flex" onclick="doh2(this)">
     <h2 class="naming2">${ele.Name}</h2>
-    <div class="hnav"><button type="button" class="pn" data-dir="-1" aria-label="Previous classmate"><i class="svgBack"></i></button><button type="button" class="pn" data-dir="1" aria-label="Next classmate"><i class="svgBack"></i></button></div>
     <div class="back"><i class="svgBack"></i></div>
   </div>
   <div class="details">
@@ -743,7 +742,6 @@ function closeProfile(vessel) {
 function sibling(v, dir) { var n = dir > 0 ? v.nextElementSibling : v.previousElementSibling; return n && n.classList.contains("vessels") ? n : null; }
 function fillNav(v) {
   var prev = sibling(v, -1), next = sibling(v, 1);
-  [].forEach.call(v.querySelectorAll(".pn"), function(b) { b.disabled = Number(b.dataset.dir) < 0 ? !prev : !next; });
   var f = v.querySelector(".pnav");
   if (!f) return;
   function nm(x) { var h = x && x.querySelector(".naming"); return h ? esc(h.textContent.trim()) : ""; }
@@ -780,9 +778,9 @@ insertProfiles.addEventListener("click", function (e) {
   if (v.classList.contains("collapsed")) openProfile(v); else closeProfile(v);
 });
 
-// arrows and footer buttons (capture phase, so the header's own tap-to-go-back does not run)
+// footer Previous / Next buttons
 insertProfiles.addEventListener("click", function (e) {
-  var b = e.target.closest(".pn, .pn-foot");
+  var b = e.target.closest(".pn-foot");
   if (!b) return;
   e.stopPropagation(); e.preventDefault();
   if (!b.disabled) goSibling(Number(b.dataset.dir));

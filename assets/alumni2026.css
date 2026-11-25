@@ -83,3 +83,11 @@ textarea.am-input{padding:10px 12px}
 
 .am-filters2{display:grid;grid-template-columns:1fr;gap:8px}
 @media (min-width:560px){.am-filters2{grid-template-columns:2fr 1fr}}
+
+/* admins: change, add and remove responses */
+.am-acts{white-space:nowrap}
+.am-rowbtn{min-height:34px;margin:0 6px 0 0;padding:0 12px;border:1px solid var(--am-line);border-radius:10px;background:var(--am-bg2);color:var(--am-accent);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.am-rowbtn:hover{border-color:var(--am-accent)}
+.am-del{color:#ff7b7b}.am-del:hover{border-color:#d64545}
+.am-add{border-color:var(--am-accent);color:var(--am-accent)!important}
+.am-input[readonly]{opacity:.75}

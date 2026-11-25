@@ -266,12 +266,7 @@ h2.naming{font-weight:500;margin:0;padding:0;color:var(--jb-text)}
    profile meter, photo prompt, tidier buttons and cards
    ===================================================================== */
 
-/* previous / next classmate: arrows in the header, buttons at the end of the profile */
-.hnav{display:flex;flex:none;gap:6px;margin-right:10px}
-.pn{display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.pn .svgBack{width:22px;height:22px;background-color:#fff}
-.pn[data-dir="1"] .svgBack{transform:rotate(180deg)}
-.pn:disabled{opacity:.3;cursor:default}
+/* previous / next classmate: buttons at the end of the profile (swipe also works) */
 .naming2{min-width:0;overflow:hidden;line-height:1.15}
 .pnav{display:flex;gap:10px;margin:12px 0 4px}
 .pnav[hidden]{display:none}

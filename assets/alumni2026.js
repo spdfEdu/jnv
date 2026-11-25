@@ -206,18 +206,18 @@
   }
   function field(id, label, input, hint) { return h("div", { class: "am-field" }, h("label", { for: id, text: label }), input, hint ? h("p", { class: "am-hint", text: hint }) : null); }
 
-  function formScreen() {
-    var me = st.me, r = me.response || {}, m = me.member || {}, p = st.pick || {};
-    function pre(k, alt) { var v = r[k] !== undefined && r[k] !== "" ? r[k] : (m[k] !== undefined && m[k] !== "" ? m[k] : alt); return v === undefined || v === null ? "" : String(v); }
-    var v = { Name: pre("Name", p.name || me.user.name), Batch: pre("Batch", p.batch), Phone: pre("Phone", ""), CurrentStatus: pre("CurrentStatus", "") };
+  // The Meet form, used on the member's own page and by admins adding or changing a response.
+  // o: { r: answers so far, v: {Name, Batch, Phone, CurrentStatus}, locked, title, gmail: {value, editable, label}, submit, save(d) -> promise, saved(res, button, note) }
+  function meetForm(o) {
+    var r = o.r || {}, v = o.v;
     var tshirtOther = r.Tshirt && SIZES.indexOf(r.Tshirt) < 0, mentorOther = r.Mentor && r.Mentor !== "Yes" && r.Mentor !== "No";
 
     var batchSel = h("select", { id: "am-Batch", name: "Batch", class: "am-input" }, h("option", { value: "", text: "Select your batch" }));
     for (var y = FIRST_BATCH; y <= thisYear + 1; y++) batchSel.appendChild(h("option", { value: String(y), text: batchLabel(y) }));
-    batchSel.value = v.Batch; if (m.locked) batchSel.disabled = true;
+    batchSel.value = v.Batch; if (o.locked) batchSel.disabled = true;
     var statusSel = h("select", { id: "am-CurrentStatus", name: "CurrentStatus", class: "am-input" }, h("option", { value: "", text: "Choose one" }));
     var sopts = STATUS.slice(); if (v.CurrentStatus && sopts.indexOf(v.CurrentStatus) < 0) sopts.push(v.CurrentStatus);
-    sopts.forEach(function (o) { statusSel.appendChild(h("option", { value: o, text: o })); });
+    sopts.forEach(function (x) { statusSel.appendChild(h("option", { value: x, text: x })); });
     statusSel.value = v.CurrentStatus;
 
     var more = h("div", { class: "am-more" }), countBox = h("div", { class: "am-field" });
@@ -244,7 +244,7 @@
     more.appendChild(mentorText);
 
     var note = h("div", { id: "am-note" }, st.note ? msg(st.note, "ok") : null); st.note = "";
-    var button = h("button", { class: "am-btn am-primary", type: "submit", text: "Save and Next" });
+    var button = h("button", { class: "am-btn am-primary", type: "submit", text: o.submit });
     var form = h("form", { class: "am-form", novalidate: true, onsubmit: function (e) {
       e.preventDefault();
       var f = form.elements, d = {
@@ -252,23 +252,37 @@
         Companions: f.Companions.value, CompanionCount: f.CompanionCount.value, Breakfast: f.Breakfast.value, Lunch: f.Lunch.value,
         Tshirt: f.Tshirt.value === "Other" ? f.TshirtOther.value : f.Tshirt.value, Mentor: f.Mentor.value === "Other" ? f.MentorOther.value : f.Mentor.value
       };
+      if (o.gmail.editable) d.Email = f.Email.value;
       note.textContent = ""; button.disabled = true; button.textContent = "Saving...";
-      api("/api/meet/me", { method: "PUT", auth: true, json: { data: d } }).then(function (res) { button.textContent = "Saved. Opening your profile..."; note.textContent = ""; note.appendChild(msg(res.message, "ok")); setTimeout(function () { location.href = LOGIN; }, 900); })
-        .catch(function (err) { button.disabled = false; button.textContent = "Save and Next"; if (err.message !== "expired") { note.textContent = ""; note.appendChild(msg(err.message, "bad")); note.scrollIntoView({ block: "center" }); } });
+      o.save(d).then(function (res) { o.saved(res, button, note); })
+        .catch(function (err) { button.disabled = false; button.textContent = o.submit; if (err.message !== "expired") { note.textContent = ""; note.appendChild(msg(err.message, "bad")); note.scrollIntoView({ block: "center" }); } });
     } },
-      h("div", { class: "am-card" }, h("h2", { text: "Your details" }),
-        field("am-Name", "Name", h("input", { id: "am-Name", name: "Name", class: "am-input", type: "text", maxlength: "80", autocomplete: "name", placeholder: "eg. Mobayea Biswas", readonly: !!m.locked, value: v.Name }), m.locked ? "Your name and batch come from your alumni profile." : null),
+      h("div", { class: "am-card" }, h("h2", { text: o.title || "Your details" }),
+        field("am-Name", "Name", h("input", { id: "am-Name", name: "Name", class: "am-input", type: "text", maxlength: "80", autocomplete: "name", placeholder: "eg. Mobayea Biswas", readonly: !!o.locked, value: v.Name }), o.locked ? "Your name and batch come from your alumni profile." : null),
         field("am-Batch", "Batch", batchSel),
-        field("am-Gmail", "Gmail (from your sign-in)", h("input", { id: "am-Gmail", class: "am-input", type: "email", readonly: true, value: me.user.email })),
+        field("am-Gmail", o.gmail.label, h("input", { id: "am-Gmail", name: "Email", class: "am-input", type: "email", readonly: !o.gmail.editable, placeholder: o.gmail.editable ? "eg. name@gmail.com" : null, value: o.gmail.value })),
         field("am-Phone", "Phone number", h("input", { id: "am-Phone", name: "Phone", class: "am-input", type: "tel", inputmode: "tel", autocomplete: "tel", placeholder: "eg. 9876543210", value: v.Phone })),
         field("am-CurrentStatus", "Current status", statusSel)),
       h("div", { class: "am-card" }, h("h2", { text: "Alumni Meet 2026" }),
         group("Attend", "Will you attend the Alumni Meet? (on 26th December 2026)", ["Yes", "No"], r.Attend || "", sync), more),
       note, button);
+    form.sync = sync;
+    return form;
+  }
+
+  function formScreen() {
+    var me = st.me, r = me.response || {}, m = me.member || {}, p = st.pick || {};
+    function pre(k, alt) { var v = r[k] !== undefined && r[k] !== "" ? r[k] : (m[k] !== undefined && m[k] !== "" ? m[k] : alt); return v === undefined || v === null ? "" : String(v); }
+    var v = { Name: pre("Name", p.name || me.user.name), Batch: pre("Batch", p.batch), Phone: pre("Phone", ""), CurrentStatus: pre("CurrentStatus", "") };
+    var form = meetForm({
+      r: r, v: v, locked: !!m.locked, gmail: { value: me.user.email, editable: false, label: "Gmail (from your sign-in)" }, submit: "Save and Next",
+      save: function (d) { return api("/api/meet/me", { method: "PUT", auth: true, json: { data: d } }); },
+      saved: function (res, button, note) { button.textContent = "Saved. Opening your profile..."; note.textContent = ""; note.appendChild(msg(res.message, "ok")); setTimeout(function () { location.href = LOGIN; }, 900); }
+    });
     var extra = me.canView ? h("a", { class: "am-viewbtn", href: RESPONSES, text: "View Responses" }) : null;
     var wrap = h("div", null, topBar(me.user.email, extra),
       me.response ? msg("You have already responded. You can change your answers below.", "ok") : null, form);
-    show(wrap); sync(); toMain();
+    show(wrap); form.sync(); toMain();
   }
 
   /* ================= RESPONSES PAGE ================= */
@@ -280,7 +294,7 @@
   }
   function loadResponses() {
     show(h("div", { class: "am-card am-center" }, h("p", { class: "am-muted", text: "Loading..." })));
-    return api("/api/meet/responses", { auth: true }).then(function (r) { st.rows = r.responses; drawResponses(); }).catch(function (e) {
+    return api("/api/meet/responses", { auth: true }).then(function (r) { st.rows = r.responses; st.canEdit = !!r.canEdit; drawResponses(); }).catch(function (e) {
       if (e.message === "expired") return;
       show(h("div", { class: "am-card" }, msg(/only/i.test(e.message) ? "This page is for core members and admins only. This Gmail is not on the list." : e.message, "bad"),
         h("button", { class: "am-btn", type: "button", text: "Sign out", onclick: function () { signOut(); } }), " ", h("a", { class: "am-btn", href: FORM, text: "Back to the form" })));
@@ -292,9 +306,30 @@
     var cols = ["Batch", "Name", "Email", "Phone", "Current status", "Institute", "Attend", "Accompanied", "Number accompanying", "Breakfast", "Lunch", "T-shirt", "Mentor / stage", "Updated"];
     var q = function (s) { s = String(s == null ? "" : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     var out = [cols.join(",")];
-    rows.forEach(function (x) { out.push([batchLabel(x.Batch), x.Name, x.email, x.Phone, x.CurrentStatus, x.Institute, x.Attend, x.Companions, x.CompanionCount, x.Breakfast, x.Lunch, x.Tshirt, x.Mentor, new Date(x.updated_at * 1000).toISOString().slice(0, 10)].map(q).join(",")); });
+    rows.forEach(function (x) { out.push([batchLabel(x.Batch), x.Name, realMail(x.email), x.Phone, x.CurrentStatus, x.Institute, x.Attend, x.Companions, x.CompanionCount, x.Breakfast, x.Lunch, x.Tshirt, x.Mentor, new Date(x.updated_at * 1000).toISOString().slice(0, 10)].map(q).join(",")); });
     return out.join("\n");
   }
+  // admins: one form to add a response by hand or change an existing one
+  function adminForm(row) {
+    var r = row || {}, user = st.token.claims || {};
+    var form = meetForm({
+      r: r, v: { Name: r.Name || "", Batch: r.Batch ? String(r.Batch) : "", Phone: r.Phone || "", CurrentStatus: r.CurrentStatus || "" }, locked: false,
+      title: row ? "Change this response" : "Add a response",
+      gmail: row ? { value: realMail(row.email), editable: false, label: "Gmail (cannot be changed)" } : { value: "", editable: true, label: "Gmail (leave empty if they have none)" },
+      submit: "Save",
+      save: function (d) { return row ? api("/api/admin/meet/" + encodeURIComponent(row.email), { method: "PUT", auth: true, json: { data: d } }) : api("/api/admin/meet", { method: "POST", auth: true, json: { email: d.Email, data: d } }); },
+      saved: function () { st.note = ""; loadResponses(); }
+    });
+    show(h("div", null, topBar(user.email || "", null), form, h("button", { class: "am-btn", type: "button", text: "Cancel", onclick: function () { drawResponses(); } })));
+    form.sync(); toMain();
+  }
+  function removeResponse(x) {
+    if (!window.confirm("Delete the response of " + x.Name + "? This cannot be undone.")) return;
+    api("/api/admin/meet/" + encodeURIComponent(x.email), { method: "DELETE", auth: true }).then(function () {
+      st.rows = st.rows.filter(function (y) { return y.email !== x.email; }); drawResponses();
+    }).catch(function (e) { if (e.message !== "expired") window.alert(e.message); });
+  }
+  function realMail(e) { return /@jnvmsd\.invalid$/i.test(e || "") ? "" : e; } // people added without a Gmail
   function drawResponses() {
     var user = st.token.claims || {}, all = st.rows;
     var yrs = {}; all.forEach(function (x) { yrs[x.Batch] = 1; });
@@ -302,7 +337,7 @@
     function tile(n, label) { return h("div", { class: "am-tile" }, h("b", { text: String(n) }), h("span", { text: label })); }
     function list() {
       var q = st.f.q.toLowerCase().trim();
-      return all.filter(function (x) { return (!st.f.year || String(x.Batch) === st.f.year) && (!st.f.att || x.Attend === st.f.att) && (!q || (x.Name + " " + x.email + " " + x.Phone).toLowerCase().indexOf(q) >= 0); });
+      return all.filter(function (x) { return (!st.f.year || String(x.Batch) === st.f.year) && (!st.f.att || x.Attend === st.f.att) && (!q || (x.Name + " " + realMail(x.email) + " " + x.Phone).toLowerCase().indexOf(q) >= 0); });
     }
     function fill() {
       var rows = list(), yes = rows.filter(function (x) { return x.Attend === "Yes"; });
@@ -315,12 +350,13 @@
       shirts.textContent = "T-shirts: " + (Object.keys(sz).length ? SIZES.concat(Object.keys(sz).filter(function (k) { return SIZES.indexOf(k) < 0; })).filter(function (k) { return sz[k]; }).map(function (k) { return k + " " + sz[k]; }).join(", ") : "none yet");
       table.textContent = "";
       if (!rows.length) return table.appendChild(h("p", { class: "am-empty", text: "No responses match." }));
-      var t = h("table", { class: "am-table" }, h("thead", null, h("tr", null, ["Batch", "Name", "Phone", "Current status", "Attend", "With", "Breakfast", "Lunch", "T-shirt", "Mentor / stage"].map(function (c) { return h("th", { scope: "col", text: c }); }))));
+      var t = h("table", { class: "am-table" }, h("thead", null, h("tr", null, ["Batch", "Name", "Phone", "Current status", "Attend", "With", "Breakfast", "Lunch", "T-shirt", "Mentor / stage"].concat(st.canEdit ? [""] : []).map(function (c) { return h("th", { scope: "col", text: c }); }))));
       var tb = h("tbody");
       rows.forEach(function (x) {
-        tb.appendChild(h("tr", null, h("td", { text: batchLabel(x.Batch) }), h("td", null, h("b", { text: x.Name }), h("small", { text: x.email })),
+        tb.appendChild(h("tr", null, h("td", { text: batchLabel(x.Batch) }), h("td", null, h("b", { text: x.Name }), h("small", { text: realMail(x.email) || "no Gmail" })),
           h("td", null, x.Phone ? h("a", { href: "tel:" + x.Phone, text: x.Phone }) : ""), h("td", { text: statusText(x) }),
-          h("td", { class: x.Attend === "Yes" ? "am-yes" : "am-no", text: x.Attend }), h("td", { text: withText(x) }), h("td", { text: x.Breakfast }), h("td", { text: x.Lunch }), h("td", { text: x.Tshirt }), h("td", { text: x.Mentor })));
+          h("td", { class: x.Attend === "Yes" ? "am-yes" : "am-no", text: x.Attend }), h("td", { text: withText(x) }), h("td", { text: x.Breakfast }), h("td", { text: x.Lunch }), h("td", { text: x.Tshirt }), h("td", { text: x.Mentor }),
+          st.canEdit ? h("td", { class: "am-acts" }, h("button", { class: "am-rowbtn", type: "button", text: "Edit", "aria-label": "Edit the response of " + x.Name, onclick: function () { adminForm(x); } }), h("button", { class: "am-rowbtn am-del", type: "button", text: "Delete", "aria-label": "Delete the response of " + x.Name, onclick: function () { removeResponse(x); } })) : null));
       });
       t.appendChild(tb); table.appendChild(t);
     }
@@ -333,7 +369,7 @@
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } });
     show(h("div", null, topBar(user.email || "", h("a", { class: "am-link", href: FORM, text: "Back to form" })),
-      h("h2", { class: "am-title", text: "Alumni Meet 2026 responses" }), tiles, shirts, h("div", { class: "am-filters" }, search, yearSel, attSel, dl), table));
+      h("h2", { class: "am-title", text: "Alumni Meet 2026 responses" }), tiles, shirts, h("div", { class: "am-filters" }, search, yearSel, attSel, dl), st.canEdit ? h("p", null, h("button", { class: "am-btn am-add", type: "button", text: "+ Add a response", onclick: function () { adminForm(null); } })) : null, table));
     fill();
   }
 

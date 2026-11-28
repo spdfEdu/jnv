@@ -580,7 +580,12 @@
     ".jnv-au-chip:focus-visible,.jnv-au-in:focus-visible{outline:2px solid var(--jb-gold,#E6B84A);outline-offset:2px}",
     ".jnv-au-chip img,.jnv-au-chip .jnv-ps-ini{flex:none;border:1.5px solid var(--jb-gold,#E6B84A)}",
     ".jnv-au-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-    "@media(max-width:420px){.jnv-au-name{max-width:70px}}",
+    /* phones: only the round photo (no name), and a tighter header so nothing is pushed off the screen */
+    "@media(max-width:640px){.jnv-au-name{display:none}.jnv-au-chip{min-width:44px;max-width:none;padding:0;justify-content:center;gap:0}.jnv-au-in{padding:0 8px;font-size:13px}",
+    "#header-wrap .container{padding-left:10px!important;padding-right:6px!important}",
+    ".jnv-brand{gap:8px;min-width:0;font-size:14px;letter-spacing:.03em}.jnv-brand .jnv-name{font-size:14px;overflow:hidden;text-overflow:ellipsis}",
+    ".theme-toggle{width:38px}.mobile-menu-toggle{width:38px!important;margin-left:2px!important}}",
+    "@media(max-width:360px){.jnv-brand,.jnv-brand .jnv-name{font-size:12.5px;letter-spacing:0}.jnv-brand{gap:6px}}",
     ".jnv-ps-img{display:block;flex:none;border-radius:50%;object-fit:cover;background:var(--jb-surface2,#EAF1FB)}",
     ".jnv-ps-ini{display:inline-flex;flex:none;align-items:center;justify-content:center;border-radius:50%;background:var(--jb-surface2,#EAF1FB);color:var(--jb-accent,#1B6BB8);font-weight:700;font-size:16px;line-height:1}",
     /* account window */

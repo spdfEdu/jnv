@@ -277,9 +277,9 @@
     setTimeout(function () { whenGoogle(cb, fail, (n || 0) + 1); }, 100);
   }
   // draws the Google button in box; onCred(credential) gets the Google ID token (it is checked on the server)
-  function googleButton(box, onCred, onFail) {
+  function googleButton(box, onCred, onFail, hint) {
     whenGoogle(function () {
-      google.accounts.id.initialize({ client_id: CFG.client, callback: function (r) { if (r && r.credential) onCred(r.credential); }, auto_select: false, cancel_on_tap_outside: false });
+      google.accounts.id.initialize({ client_id: CFG.client, callback: function (r) { if (r && r.credential) onCred(r.credential); }, auto_select: false, cancel_on_tap_outside: false, login_hint: hint || undefined }); // hint: open Google on the linked account
       clear(box);
       google.accounts.id.renderButton(box, { theme: "filled_blue", size: "large", shape: "pill", text: "continue_with" });
     }, onFail);
@@ -298,7 +298,7 @@
     img.addEventListener("error", function () { if (img.parentNode) img.parentNode.replaceChild(ini, img); });
     return img;
   }
-  function subLine(p) { return ["Batch " + p.batch, p.house ? p.house + " House" : ""].filter(Boolean).join(" \u00b7 "); }
+  function subLine(p) { return ["Batch " + p.batch, p.house ? p.house + " House" : "", p.linked === false ? "Gmail not linked yet" : ""].filter(Boolean).join(" \u00b7 "); }
 
   // box: where to draw. o: { title, intro, note, onDone(result) after sign-in, onRegister() for "New Alumni Registration" }
   function picker(box, o) {
@@ -310,12 +310,17 @@
     var msg = h("p", { class: "jnv-ps-msg", role: "status", "aria-live": "polite" });
     var list = h("div", { class: "jnv-ps-list" });
     var form = h("form", { class: "jnv-ps-form", role: "search", novalidate: true, onsubmit: function (e) { e.preventDefault(); run(); } }, input, go);
+    // "Not finding your name?": choose your batch to see its names (a short list, no photos)
+    var sel = h("select", { class: "jnv-ps-q jnv-ps-sel", "aria-label": "Choose your batch", onchange: function () { if (sel.value) runBatch(sel.value); } }, h("option", { value: "", text: "Or choose your batch" }));
+    api("/api/meet/batches", { auth: false }).then(function (r) {
+      (r.batches || []).forEach(function (b) { sel.appendChild(h("option", { value: String(b.batch), text: "Batch " + b.batch })); });
+    }, function () {});
     var reg = o.onRegister ? h("button", { class: "jnv-ps-btn jnv-ps-regbtn", type: "button", text: "New Alumni Registration", onclick: function () { o.onRegister(); } }) : null;
     var wrap = h("div", { class: "jnv-ps" },
       o.title ? h("h2", { class: "jnv-ps-title", text: o.title }) : null,
       h("p", { class: "jnv-ps-muted", text: o.intro || "Type your name or your full Gmail, then press Search. Pick your profile and confirm with Google." }),
       o.note ? h("p", { class: "jnv-ps-note", text: o.note }) : null,
-      form, msg, list,
+      form, h("div", { class: "jnv-ps-batch" }, sel), msg, list,
       reg ? h("div", { class: "jnv-ps-or" }, h("span", { text: "New here?" }), reg) : null);
     clear(box); box.appendChild(wrap);
 
@@ -348,6 +353,13 @@
         if (r.more) say("Showing the first 10. Add your surname to narrow it down.");
       }, function (e) { busy(false); say(e.message, true); });
     }
+    function runBatch(b) {
+      busy(true); say("Loading..."); clear(list);
+      api("/api/search?batch=" + encodeURIComponent(b), { auth: false }).then(function (r) {
+        busy(false); last.q = ""; last.results = r.results || []; input.value = "";
+        draw(last.results);
+      }, function (e) { busy(false); say(e.message, true); });
+    }
     if (last.results && last.q === input.value) draw(last.results);
     return { focus: function () { try { input.focus(); } catch (e) {} } };
   }
@@ -360,7 +372,7 @@
       h("div", { class: "jnv-ps-pick" }, avatarEl(p.photo, p.name, 56), h("span", { class: "jnv-ps-who" }, h("b", { text: p.name }), h("span", { text: subLine(p) }))),
       p.linked
         ? h("p", { class: "jnv-ps-muted", text: "Is this you? Continue with the Google account (Gmail) linked to this profile." })
-        : h("p", { class: "jnv-ps-note", text: "No Gmail is linked to this profile yet. Continue with your own Gmail and send your details: the admin will check them and link your Gmail to this profile." }),
+        : h("p", { class: "jnv-ps-note", text: p.auto ? "No Gmail is linked to this profile yet. Continue with your own Gmail: it will be linked to this profile." : "No Gmail is linked to this profile yet. Continue with your own Gmail and send your details: the admin will check them and link your Gmail to this profile." }),
       gbtn, err);
     clear(box); box.appendChild(card);
     if (card.scrollIntoView) card.scrollIntoView({ block: "nearest" });
@@ -370,7 +382,7 @@
         signInWithProfile(p, cred).then(function (res) {
           if (o.onDone) o.onDone({ me: res.me, linked: res.linked !== false, pick: p });
         }, function (e) { err.textContent = e.message; err.hidden = false; draw(); });
-      }, function () { err.textContent = "Google sign-in could not load. Check your connection and reload the page."; err.hidden = false; });
+      }, function () { err.textContent = "Google sign-in could not load. Check your connection and reload the page."; err.hidden = false; }, p.linked ? p.hint : "");
     }
     draw();
   }
@@ -587,6 +599,8 @@
     ".jnv-ps-note{margin:0 0 12px;padding:10px 12px;border-left:4px solid var(--jb-gold,#E6B84A);border-radius:10px;background:var(--jb-surface2,#EAF1FB);font-size:14px;line-height:1.45;color:var(--jb-text,#0E1B36)}",
     ".jnv-ps-form{display:flex;gap:8px;margin:0 0 8px}",
     ".jnv-ps-q{flex:1;min-width:0;min-height:46px;margin:0;padding:0 14px;border:1px solid var(--jb-line,#D5E0EF);border-radius:12px;background:var(--jb-surface,#fff);color:var(--jb-text,#0E1B36);font:inherit;font-size:16px;-webkit-appearance:none;appearance:none}",
+    ".jnv-ps-batch{margin:0 0 8px}",
+    ".jnv-ps-sel{width:100%}",
     ".jnv-ps-q:focus{outline:2px solid var(--jb-accent,#1B6BB8);outline-offset:-2px}",
     ".jnv-ps-go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:48px;min-height:46px;border:0;border-radius:12px;background:var(--jb-accent,#1B6BB8);color:#fff;cursor:pointer}",
     ".jnv-ps-go:disabled{opacity:.55;cursor:wait}",

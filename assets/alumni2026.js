@@ -75,12 +75,30 @@
       h("p", { class: "am-small", text: "(We are also trying to collect the data of the Alumni Members to preserve them in Alumni Association's Database for any future use, so please fill the given Details) Thanks for your Support. \ud83d\ude0a" }));
   }
 
-  // signed out: sign in on the login page (the same search and Google check), which brings the person back to this form
+  // signed out: the same search and sign-in as the login page. Pick your profile, "Is this you? Continue with <Gmail>", then the form opens.
   function picker(note) {
-    show(h("div", { class: "am-card am-center" }, h("h2", { text: "Sign in to continue" }),
+    var box = h("div");
+    show(h("div", { class: "am-card" },
+      h("h2", { text: "Alumni sign in" }),
+      h("p", { class: "am-muted", text: "Find your profile to fill the Alumni Meet 2026 form." }),
       note ? msg(note, "warn") : null,
-      h("p", { class: "am-muted", text: "Find your profile and confirm with your Gmail on the sign-in page. You will come back here to fill the Alumni Meet form." }),
-      h("a", { class: "am-btn", href: LOGIN + "#meet", style: "display:inline-block;text-decoration:none;text-align:center", text: "Sign in / Register" })));
+      box));
+    Auth.picker(box, {
+      intro: "Type your name (or your full Gmail) and press Search. Pick your profile, then confirm with the Google account linked to it.",
+      onDone: function (res) { st.pick = { name: res.pick.name, batch: String(res.pick.batch) }; loadMe(); },
+      onRegister: registerScreen
+    });
+  }
+  // "Name not found? Register": sign in with any Gmail, then type the name and batch in the form
+  function registerScreen() {
+    var box = h("div");
+    show(h("div", { class: "am-card" }, box)); toMain();
+    Auth.registerView(box, {
+      title: "Register yourself",
+      intro: "Sign in with your Gmail. You will enter your name and batch in the next step.",
+      onBack: function () { picker(); },
+      onDone: function () { st.pick = { register: true }; loadMe(); }
+    });
   }
 
   function loadMe() {

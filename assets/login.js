@@ -1,13 +1,12 @@
-/* JNV MSD alumni: sign in with Google, see your details, switch on Edit to change them.
-   Needs <div id="jnv-login" data-api="..." data-client="..."> on the page. */
+/* JNV MSD alumni: find your profile, confirm with Google, see your details, switch on Edit to change them.
+   Needs <div id="jnv-login"> on the page and signin.js in the theme (it holds the sign-in, the API address and the Google client).
+   Links: #edit opens the form, #photos jumps to Photos, #edit=<id> lets an admin edit someone, #register starts a new registration. */
 (function () {
   var root = document.getElementById("jnv-login");
   if (!root) return;
-  var API = (root.dataset.api || "").replace(/\/+$/, "");
-  var CLIENT = root.dataset.client || "";
+  var Auth = window.JNVAuth;
+  var API = Auth ? Auth.config.api : (root.dataset.api || "").replace(/\/+$/, ""); // one API address for every page (see note.md, item 1)
   var IMAGES = root.dataset.images || "https://spdfedu.github.io/jnv/images/";
-  var TOKEN_KEY = "jnv-id-token";   // an older one hour Google sign-in
-  var SESSION_KEY = "jnv-session";  // the 30 day sign-in
 
   var HOUSES = ["Aravali", "Nilgiri", "Shivalik", "Udaigiri"];
   var BLOOD = ["A +ve", "A -ve", "B +ve", "B -ve", "AB +ve", "AB -ve", "O +ve", "O -ve"];
@@ -176,7 +175,8 @@
 
   var ADMIN_URL = root.dataset.admin || "/p/admin.html";
   var editMatch = /^#edit=([0-9a-f-]{36})$/i.exec(location.hash || "");
-  var state = { editId: editMatch ? editMatch[1].toLowerCase() : null, target: null, notAdmin: false, dirty: false, pushed: false, skipPop: false, afterSave: null, flash: "", token: null, claims: null, me: null, photoBlob: null, photoUrl: null, ownPhotoUrl: null, editing: false, busy: false };
+  var startHash = /^#(edit|photos|register)$/i.test(location.hash || "") ? location.hash.slice(1).toLowerCase() : ""; // used once, after sign-in
+  var state = { editId: editMatch ? editMatch[1].toLowerCase() : null, target: null, notAdmin: false, dirty: false, pushed: false, skipPop: false, afterSave: null, flash: "", claim: null, registering: false, me: null, photoBlob: null, photoUrl: null, ownPhotoUrl: null, editing: false, busy: false };
 
   /* ---------- tiny helpers ---------- */
   function h(tag, attrs) {
@@ -196,91 +196,38 @@
   }
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
   function show(node) { clear(root); root.appendChild(node); }
-  function decode(t) {
-    try { return JSON.parse(decodeURIComponent(escape(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))))); } catch (e) { return null; }
-  }
   function nameKey(n) { return String(n || "").replace(/ /g, "_"); }
 
-  /* ---------- token ---------- */
-  function savedToken() {
-    // the 30 day session first (the server says when it ends), then an older Google sign-in that is still valid
-    var ss = null; try { ss = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) {}
-    if (ss && ss.t) return { raw: ss.t, claims: ss.user || {}, session: true };
-    var t = null;
-    try { t = localStorage.getItem(TOKEN_KEY); } catch (e) {}
-    var c = t && decode(t);
-    return c && c.exp * 1000 > Date.now() + 60000 ? { raw: t, claims: c } : null;
-  }
-  function storeToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {} }
-  function storeSession(r) { try { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: r.session, user: r.user })); localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
-  function dropToken() { try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {} }
-  // swap an hour-long Google sign-in for a 30 day session; resolves to the new token, or null if that is not possible
-  function makeSession(googleToken) {
-    return fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + googleToken } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (r) { if (!r) return null; storeSession(r); return { raw: r.session, claims: r.user, session: true }; })
-      .catch(function () { return null; });
-  }
-
-  /* ---------- API ---------- */
-  function api(path, opts) {
-    opts = opts || {};
-    var headers = {};
-    if (state.token) headers.Authorization = "Bearer " + state.token.raw;
-    var body;
-    if (opts.json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(opts.json); }
-    if (opts.blob) { headers["Content-Type"] = opts.blob.type; body = opts.blob; }
-    return fetch(API + path, { method: opts.method || "GET", headers: headers, body: body }).then(function (r) {
-      if (opts.asBlob && r.ok) return r.blob();
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (r.status === 401) { signOut("Your sign-in expired. Please sign in again."); throw new Error("expired"); }
-        if (!r.ok) throw new Error(j.error || "Something went wrong (" + r.status + ")");
-        return j;
-      });
-    });
-  }
-
-  /* ---------- sign in / out ---------- */
-  function whenGoogle(cb, tries) {
-    if (window.google && google.accounts && google.accounts.id) return cb();
-    if ((tries || 0) > 100) return fail("Google sign-in could not load. Check your connection and reload the page.");
-    setTimeout(function () { whenGoogle(cb, (tries || 0) + 1); }, 100);
-  }
+  /* ---------- API (signin.js adds the sign-in and checks a refused request before signing out) ---------- */
+  function api(path, opts) { return Auth.api(path, opts); }
   function fail(msg) { show(h("div", { class: "jl-card" }, h("p", { class: "jl-msg jl-bad", text: msg }))); }
 
-  var hadSession = false;
+  /* ---------- signed out: search your profile, then Google confirms it (no open Google button) ---------- */
   function renderSignedOut(note) {
-    var btn = h("div", { class: "jl-gbtn" });
-    show(h("div", { class: "jl-card jl-center" },
+    state.me = null; state.target = null; state.claim = null; state.registering = false;
+    var box = h("div");
+    show(h("div", { class: "jl-card" },
       h("h2", { text: "Alumni sign in" }),
-      h("p", { class: "jl-muted", text: "Sign in with your Google account to see and update your alumni details. You do not need to sign in to browse the site." }),
+      h("p", { class: "jl-muted", text: "Find your profile to see and update your alumni details. You do not need to sign in to browse the site." }),
       note ? h("p", { class: "jl-msg jl-warn", text: note }) : null,
-      btn));
-    whenGoogle(function () {
-      google.accounts.id.initialize({ client_id: CLIENT, callback: onCredential, auto_select: true, cancel_on_tap_outside: false });
-      google.accounts.id.renderButton(btn, { theme: "outline", size: "large", shape: "pill", text: "signin_with" });
-      if (hadSession) { hadSession = false; google.accounts.id.prompt(); } // returning visitor: try to sign in quietly
+      box));
+    Auth.picker(box, {
+      intro: "Type your name (or your full Gmail) and press Search. Pick your profile, then confirm with the Google account linked to it.",
+      onDone: function (res) { state.claim = res.linked ? null : res.pick; load(); },
+      onRegister: renderRegister
+    });
+  }
+  // New Alumni Registration: Google first, then the same form as Edit details (new profiles wait for the admin)
+  function renderRegister() {
+    var box = h("div");
+    show(h("div", { class: "jl-card" }, box));
+    Auth.registerView(box, {
+      onBack: function () { renderSignedOut(""); },
+      onDone: function () { state.registering = true; load(); }
     });
   }
 
-  function onCredential(resp) {
-    var c = decode(resp.credential);
-    if (!c) return;
-    makeSession(resp.credential).then(function (t) {
-      if (t) { state.token = t; }
-      else { state.token = { raw: resp.credential, claims: c }; storeToken(resp.credential); } // fall back to the one hour sign-in
-      load();
-    });
-  }
-
-  function signOut(note) {
-    // end the session on the server too
-    if (state.token && state.token.session) { try { fetch(API + "/api/session", { method: "DELETE", headers: { Authorization: "Bearer " + state.token.raw } }).catch(function () {}); } catch (e) {} }
-    dropToken();
-    state.token = null; state.me = null; state.editing = false; state.photoBlob = null;
-    if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
-    renderSignedOut(typeof note === "string" ? note : "");
-  }
+  function signOut() { Auth.signOut(); } // signin.js tells every tab; onChange below redraws this page
 
   /* ---------- load my entry ---------- */
   function load() {
@@ -299,14 +246,29 @@
       if (m && m.draft_photo) {
         return api("/api/me/photo", { asBlob: true }).then(function (b) { state.ownPhotoUrl = URL.createObjectURL(b); }, function () {});
       }
-    }).then(function () { dropPushed(); render(); }).catch(function (e) { if (e.message !== "expired") fail(e.message); });
+    }).then(function () { dropPushed(); render(); afterLoad(); }).catch(function (e) { if (e.message !== "expired") fail(e.message); });
+  }
+  // one time actions after the first load: #edit, #photos, a new registration or a link request
+  function afterLoad() {
+    var m = state.me && state.me.member, hash = startHash;
+    startHash = "";
+    if (hash) { try { history.replaceState(history.state, "", location.pathname + location.search); } catch (e) {} }
+    if (state.target) return;
+    if ((state.registering || state.claim || hash === "edit") && !state.editing && (!m || hash === "edit")) { state.registering = false; return startEditing(); }
+    if (hash === "photos") {
+      var g = document.getElementById("jl-gallery");
+      if (g && g.scrollIntoView) g.scrollIntoView({ block: "start" });
+    }
   }
 
   /* ---------- screen ---------- */
   function values() {
     var m = state.me.member;
     var v = {};
-    if (!m) { var u = state.me.user || {}; return { Name: u.name || "", EmailId: u.email || "" }; }
+    if (!m) { // a new profile: start from the picked profile (a link request) or the Google name
+      var u = state.me.user || {}, c = state.claim || {};
+      return { Name: c.name || u.name || "", Batch: c.batch ? String(c.batch) : "", House: c.house || "", EmailId: u.email || "" };
+    }
     var d = {}, k; // a pending request (new entry, or a new name or batch) is shown on top of the saved details
     for (k in (m.data || {})) d[k] = m.data[k];
     for (k in (m.draft || {})) d[k] = m.draft[k];
@@ -423,7 +385,7 @@
       h("div", { class: "jl-acct" },
         user.picture ? h("img", { src: user.picture, alt: "", width: "24", height: "24", referrerpolicy: "no-referrer" }) : null,
         h("span", { text: user.email || "" })),
-      h("button", { type: "button", class: "jl-link", text: "Sign out", onclick: function () { guard(function () { signOut(""); }); } }));
+      h("button", { type: "button", class: "jl-link", text: "Sign out", onclick: function () { guard(function () { state.editing = false; state.dirty = false; signOut(); }); } }));
 
     var pn = m && m.status === "approved" ? ((m.data && m.data.Name) || m.name) : "";
     var profileBtn = pn && m.batch ? h("a", { class: "jl-btn jl-profilebtn", href: "/" + m.batch + "#" + nameKey(pn), text: "Go to my profile" }) : null;
@@ -441,7 +403,9 @@
       body.push(h("p", { class: "jl-hint", text: m.status === "approved" ? "Changes go live on the site right away." : "Not approved yet. Saving updates their sign-up request; approve it on the admin page." }));
       body.push(form);
     } else if (isNew && !editing) {
-      body.push(h("p", { class: "jl-msg jl-warn", text: "We could not find an alumni entry for " + (user.email || "this account") + ". If you are already listed under another email, tell the admin so it can be linked. Otherwise create your profile." }));
+      body.push(h("p", { class: "jl-msg jl-warn", text: state.claim
+        ? "No Gmail is linked to " + state.claim.name + " (Batch " + state.claim.batch + ") yet. Check your details and save: the admin will link " + (user.email || "your Gmail") + " to that profile."
+        : "We could not find an alumni entry for " + (user.email || "this account") + ". If you are already listed under another email, tell the admin so it can be linked. Otherwise create your profile." }));
       body.push(h("button", { type: "button", class: "jl-btn jl-primary", text: "Create my profile", onclick: startEditing }));
     } else {
       body.push(statusBox(m));
@@ -934,11 +898,16 @@
   }
 
   /* ---------- start ---------- */
-  if (!API || !CLIENT) return fail("This page is missing its settings (data-api and data-client).");
-  var t = savedToken();
-  try { hadSession = !t && !!localStorage.getItem(TOKEN_KEY); } catch (e) {}
-  if (t) {
-    state.token = t; load();
-    if (!t.session) makeSession(t.raw).then(function (n) { if (n) state.token = n; }); // quietly move an older sign-in to a 30 day session
-  } else renderSignedOut("");
+  if (!Auth) return fail("Sign-in could not load (signin.js is missing from the theme). Please reload the page.");
+  // signed in or out here, in another tab, or the sign-in ended
+  Auth.onChange(function (u, why) {
+    if (!u) {
+      state.editing = false; state.dirty = false; state.photoBlob = null; dropPushed();
+      return renderSignedOut(why === "expired" ? "Your sign-in expired. Please sign in again." : why === "other-tab" ? "You signed out in another tab." : "");
+    }
+    if (why === "other-tab" && !(state.editing && state.dirty)) load(); // a sign-in on this page loads through onDone instead
+  });
+  if (Auth.token()) load();
+  else if (startHash === "register") { startHash = ""; renderRegister(); }
+  else renderSignedOut("");
 })();

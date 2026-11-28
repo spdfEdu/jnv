@@ -1,23 +1,21 @@
 /* JNV MSD alumni: Alumni Meet 2026 page (form) and its responses table (core members and admins).
-   Needs <div id="jnv-meet" data-api="..." data-client="..."> on the page. Add data-mode="responses" for the table page. */
+   Needs <div id="jnv-meet"> on the page and signin.js in the theme. Add data-mode="responses" for the table page.
+   Sign-in, the API address and the Google client all come from signin.js (window.JNVAuth), the same as every other page. */
 (function () {
   var root = document.getElementById("jnv-meet");
   if (!root) return;
-  var API = (root.dataset.api || "").replace(/\/+$/, "");
-  var CLIENT = root.dataset.client || "";
+  var Auth = window.JNVAuth;
   var MODE = root.dataset.mode === "responses" ? "responses" : "form";
   var LOGIN = root.dataset.login || "/p/login.html";
   var RESPONSES = root.dataset.responses || "/p/alumni2026-responses.html";
   var FORM = root.dataset.form || "/p/alumni2026.html";
-  var TOKEN_KEY = "jnv-id-token"; // an older one hour Google sign-in
-  var SESSION_KEY = "jnv-session"; // the 30 day sign-in, shared with the login and admin pages: sign in once, works everywhere
 
   var STATUS = ["Studying", "Working", "Preparation", "Self employed", "Employee", "Looking for a job"];
   var SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
   var FIRST_BATCH = 2010; // batch 1 passed Class XII in 2010, so 2018 is the 9th batch
   var thisYear = new Date().getFullYear();
 
-  var st = { token: null, batches: null, names: {}, batch: "", q: "", pick: null, err: "", me: null, note: "", f: { year: "", att: "", q: "" }, rows: [] };
+  var st = { pick: null, err: "", me: null, note: "", f: { year: "", att: "", q: "" }, rows: [] };
 
   /* ---------- helpers ---------- */
   function h(tag, attrs) {
@@ -44,72 +42,18 @@
   root.appendChild(head); root.appendChild(main);
   function show(node) { while (main.firstChild) main.removeChild(main.firstChild); main.appendChild(node); }
   function toMain() { if (main.scrollIntoView) main.scrollIntoView({ block: "start" }); }
-  function decode(t) { try { return JSON.parse(decodeURIComponent(escape(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))))); } catch (e) { return null; } }
   function ord(n) { var s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
   function batchLabel(y) { y = Number(y); return ord(y - FIRST_BATCH + 1) + " - " + y; }
   function msg(text, kind) { return h("p", { class: "am-msg am-" + (kind || "warn"), text: text, role: kind === "bad" ? "alert" : "status" }); }
 
-  /* ---------- sign in and API ---------- */
-  function savedToken() {
-    // the 30 day session first (the server says when it ends), then an older Google sign-in that is still valid
-    var ss = null; try { ss = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) {}
-    if (ss && ss.t) return { raw: ss.t, claims: ss.user || {}, session: true };
-    var t = null; try { t = localStorage.getItem(TOKEN_KEY); } catch (e) {}
-    var c = t && decode(t);
-    return c && c.exp * 1000 > Date.now() + 60000 ? { raw: t, claims: c } : null;
-  }
-  // swap an hour-long Google sign-in for a 30 day session (null if that is not possible)
-  function makeSession(googleToken) {
-    return fetch(API + "/api/session", { method: "POST", headers: { Authorization: "Bearer " + googleToken } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (r) { if (!r) return null; try { localStorage.setItem(SESSION_KEY, JSON.stringify({ t: r.session, user: r.user })); localStorage.removeItem(TOKEN_KEY); } catch (e) {} return { raw: r.session, claims: r.user, session: true }; })
-      .catch(function () { return null; });
-  }
+  /* ---------- sign in and API (all through signin.js) ---------- */
+  // opts.auth: send the sign-in. A refused request is checked by signin.js before it signs anyone out.
   function api(path, opts) {
     opts = opts || {};
-    var headers = {}, body;
-    if (opts.auth) headers.Authorization = "Bearer " + st.token.raw;
-    if (opts.json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(opts.json); }
-    return fetch(API + path, { method: opts.method || "GET", headers: headers, body: body }).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (r.status === 401 && opts.auth) { signOut("Your sign-in expired. Please sign in again."); throw new Error("expired"); }
-        if (!r.ok) throw new Error(j.error || "Something went wrong (" + r.status + ")");
-        return j;
-      });
-    });
+    return Auth.api(path, { method: opts.method, json: opts.json, auth: !!opts.auth });
   }
-  function whenGoogle(cb, n) {
-    if (window.google && google.accounts && google.accounts.id) return cb();
-    if ((n || 0) > 100) return show(h("div", { class: "am-card" }, msg("Google sign-in could not load. Please refresh the page.", "bad")));
-    setTimeout(function () { whenGoogle(cb, (n || 0) + 1); }, 100);
-  }
-  function googleButton(box, hint, onCred) {
-    whenGoogle(function () {
-      var cfg = { client_id: CLIENT, callback: onCred, auto_select: false, cancel_on_tap_outside: false };
-      if (hint) cfg.login_hint = hint;
-      google.accounts.id.initialize(cfg);
-      google.accounts.id.renderButton(box, { theme: "filled_blue", size: "large", shape: "pill", text: "signin_with" });
-    });
-  }
-  // resolves to the new token (a 30 day session when possible), or null
-  function keepToken(cred) {
-    var c = decode(cred);
-    if (!c) return Promise.resolve(null);
-    return makeSession(cred).then(function (t) {
-      if (t) { st.token = t; return t; }
-      st.token = { raw: cred, claims: c };
-      try { localStorage.setItem(TOKEN_KEY, cred); } catch (e) {}
-      return st.token;
-    });
-  }
-  function signOut(note) {
-    if (st.token && st.token.session) { try { fetch(API + "/api/session", { method: "DELETE", headers: { Authorization: "Bearer " + st.token.raw } }).catch(function () {}); } catch (e) {} } // end it on the server too
-    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(SESSION_KEY); } catch (e) {}
-    st.token = null; st.me = null; st.pick = null; st.err = "";
-    if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
-    if (MODE === "responses") signedOutResponses(typeof note === "string" ? note : "");
-    else picker(typeof note === "string" ? note : "");
-  }
+  function signOut() { Auth.signOut(); } // every tab hears it; onChange below redraws this page
+  function email() { var u = Auth.user(); return (u && u.email) || ""; }
   function topBar(email, extra) {
     return h("div", { class: "am-top" }, h("span", { class: "am-acct", text: email }),
       h("span", { class: "am-topbtns" }, extra, h("button", { class: "am-link", type: "button", text: "Sign out", onclick: function () { signOut(); } })));
@@ -131,70 +75,36 @@
       h("p", { class: "am-small", text: "(We are also trying to collect the data of the Alumni Members to preserve them in Alumni Association's Database for any future use, so please fill the given Details) Thanks for your Support. \ud83d\ude0a" }));
   }
 
-  // step 1 and 2: type a name and/or pick a batch, then tap the name
+  // step 1 and 2: search your name (the server answers with a short list), tap it, then confirm with that Gmail
   function picker(note) {
-    var card = h("div", { class: "am-card" }, h("h2", { text: "Find your name" }),
-      h("p", { class: "am-muted", text: "Type your name or pick your batch, tap your name, then sign in with that Gmail." }));
-    if (note) card.appendChild(msg(note, "warn"));
-    var search = h("input", { class: "am-input", type: "search", placeholder: "Search by name or Gmail", "aria-label": "Search by name or Gmail", autocomplete: "off", value: st.q || "", oninput: function (e) { st.q = e.target.value; fill(); } });
-    var sel = h("select", { class: "am-input", "aria-label": "Batch", onchange: function (e) { st.batch = e.target.value; fill(); } }, h("option", { value: "", text: "All batches" }));
-    var list = h("div", { class: "am-list" });
-    card.appendChild(h("div", { class: "am-filters2" }, search, sel)); card.appendChild(list);
-    function years() { var a = []; for (var y = FIRST_BATCH; y <= thisYear + 1; y++) a.push({ batch: y }); return a; }
-    function options(b) { b.forEach(function (x) { sel.appendChild(h("option", { value: String(x.batch), text: "Batch " + batchLabel(x.batch), selected: String(x.batch) === st.batch })); }); }
-    if (st.batches) options(st.batches);
-    else api("/api/meet/batches").then(function (r) { st.batches = r.batches.length ? r.batches : years(); options(st.batches); }, function () { st.batches = years(); options(st.batches); });
-    function regBar() {
-      return h("button", { class: "am-reg", type: "button", onclick: function () { st.pick = { batch: st.batch, register: true }; signIn(); } },
-        h("b", { text: "Name not found?" }), h("span", { text: "Register yourself" }));
-    }
-    function draw(names) {
-      list.textContent = "";
-      var q = (st.q || "").toLowerCase().trim();
-      var l = names.filter(function (n) { return !q || (n.name + " " + n.email).toLowerCase().indexOf(q) >= 0; });
-      l.slice(0, 60).forEach(function (n) {
-        list.appendChild(h("button", { class: "am-name", type: "button", onclick: function () { st.pick = { name: n.name, email: n.email, batch: String(n.batch) }; signIn(); } },
-          h("b", { text: n.name }), st.batch ? null : h("span", { text: "Batch " + batchLabel(n.batch) }), h("span", { class: n.email ? "" : "am-dim", text: n.email || "Gmail not linked yet" })));
-      });
-      if (l.length > 60) list.appendChild(h("p", { class: "am-empty", text: (l.length - 60) + " more. Type more of the name or pick a batch." }));
-      if (!l.length) list.appendChild(h("p", { class: "am-empty", text: "No match." }));
-      list.appendChild(regBar());
-    }
-    function fill() {
-      list.textContent = "";
-      if (!st.batch && !(st.q || "").trim()) { list.appendChild(h("p", { class: "am-empty", text: "Type a name, or pick a batch, to see the names." })); list.appendChild(regBar()); return; }
-      var key = st.batch || "all";
-      if (st.names[key]) return draw(st.names[key]);
-      list.appendChild(h("p", { class: "am-empty", text: "Loading names..." }));
-      api(st.batch ? "/api/meet/names/" + st.batch : "/api/meet/names").then(function (r) { st.names[key] = r.names; if ((st.batch || "all") === key) draw(r.names); },
-        function (e) { list.textContent = ""; list.appendChild(msg(e.message, "bad")); list.appendChild(regBar()); });
-    }
-    fill();
+    var box = h("div");
+    var card = h("div", { class: "am-card" }, box);
     show(card);
+    Auth.picker(box, {
+      title: "Find your name", note: note || "",
+      intro: "Type your name or your full Gmail and press Search. Tap your name, then sign in with that Gmail.",
+      onDone: function (res) { st.pick = { name: res.pick.name, batch: String(res.pick.batch) }; loadMe(); },
+      onRegister: registerScreen
+    });
   }
-
-  // step 3: sign in, only the Gmail that belongs to the picked name is accepted
-  function signIn() {
-    var p = st.pick, box = h("div", { class: "am-gbtn" });
-    var card = h("div", { class: "am-card am-center" },
-      h("button", { class: "am-link am-back", type: "button", text: "\u2190 Back", onclick: function () { st.err = ""; picker(); } }),
-      h("h2", { text: p.register ? "Register yourself" : p.name }),
-      p.email ? h("p", { class: "am-muted" }, "Sign in with ", h("b", { text: p.email }), " to continue.")
-        : h("p", { class: "am-muted", text: p.register ? "Sign in with your Gmail. You will enter your name and batch in the next step." : "No Gmail is linked to this name yet. Sign in with your own Gmail and fill the form. The admin will link it to your entry." }),
-      st.err ? msg(st.err, "bad") : null, box);
-    show(card); toMain();
-    googleButton(box, p.email, function (r) {
-      var c = decode(r.credential);
-      if (!c) return;
-      if (p.email && String(c.email).toLowerCase() !== p.email.toLowerCase()) { st.err = "You signed in as " + c.email + ". Please use " + p.email + " for this name."; signIn(); return; }
-      st.err = ""; keepToken(r.credential).then(function (t) { if (t) loadMe(); });
+  // "Name not found? Register": sign in with any Gmail, then type the name and batch in the form
+  function registerScreen() {
+    var box = h("div");
+    show(h("div", { class: "am-card" }, box)); toMain();
+    Auth.registerView(box, {
+      title: "Register yourself",
+      intro: "Sign in with your Gmail. You will enter your name and batch in the next step.",
+      onBack: function () { picker(); },
+      onDone: function () { st.pick = { register: true }; loadMe(); }
     });
   }
 
   function loadMe() {
     show(h("div", { class: "am-card am-center" }, h("p", { class: "am-muted", text: "Loading..." })));
     return api("/api/meet/me", { auth: true }).then(function (me) { st.me = me; formScreen(); }).catch(function (e) {
-      if (e.message !== "expired") show(h("div", { class: "am-card" }, msg(e.message, "bad"), h("button", { class: "am-btn", type: "button", text: "Sign out", onclick: function () { signOut(); } })));
+      if (e.message !== "expired") show(h("div", { class: "am-card" }, msg(e.message, "bad"),
+        h("button", { class: "am-btn", type: "button", text: "Try again", onclick: function () { loadMe(); } }), " ",
+        h("button", { class: "am-btn", type: "button", text: "Sign out", onclick: function () { signOut(); } })));
     });
   }
 
@@ -287,10 +197,13 @@
 
   /* ================= RESPONSES PAGE ================= */
   function signedOutResponses(note) {
-    var box = h("div", { class: "am-gbtn" });
-    show(h("div", { class: "am-card am-center" }, h("h2", { text: "Alumni Meet 2026 responses" }),
-      note ? msg(note, "warn") : h("p", { class: "am-muted", text: "For core members and admins. Sign in with your Gmail." }), box));
-    googleButton(box, "", function (r) { keepToken(r.credential).then(function (t) { if (t) loadResponses(); }); });
+    var box = h("div");
+    show(h("div", { class: "am-card" }, box));
+    Auth.picker(box, {
+      title: "Alumni Meet 2026 responses", note: note || "",
+      intro: "For core members and admins. Find your profile, then confirm with the Gmail linked to it.",
+      onDone: function () { loadResponses(); }
+    });
   }
   function loadResponses() {
     show(h("div", { class: "am-card am-center" }, h("p", { class: "am-muted", text: "Loading..." })));
@@ -311,7 +224,7 @@
   }
   // admins: one form to add a response by hand or change an existing one
   function adminForm(row) {
-    var r = row || {}, user = st.token.claims || {};
+    var r = row || {};
     var form = meetForm({
       r: r, v: { Name: r.Name || "", Batch: r.Batch ? String(r.Batch) : "", Phone: r.Phone || "", CurrentStatus: r.CurrentStatus || "" }, locked: false,
       title: row ? "Change this response" : "Add a response",
@@ -320,7 +233,7 @@
       save: function (d) { return row ? api("/api/admin/meet/" + encodeURIComponent(row.email), { method: "PUT", auth: true, json: { data: d } }) : api("/api/admin/meet", { method: "POST", auth: true, json: { email: d.Email, data: d } }); },
       saved: function () { st.note = ""; loadResponses(); }
     });
-    show(h("div", null, topBar(user.email || "", null), form, h("button", { class: "am-btn", type: "button", text: "Cancel", onclick: function () { drawResponses(); } })));
+    show(h("div", null, topBar(email(), null), form, h("button", { class: "am-btn", type: "button", text: "Cancel", onclick: function () { drawResponses(); } })));
     form.sync(); toMain();
   }
   function removeResponse(x) {
@@ -331,7 +244,7 @@
   }
   function realMail(e) { return /@jnvmsd\.invalid$/i.test(e || "") ? "" : e; } // people added without a Gmail
   function drawResponses() {
-    var user = st.token.claims || {}, all = st.rows;
+    var all = st.rows;
     var yrs = {}; all.forEach(function (x) { yrs[x.Batch] = 1; });
     var tiles = h("div", { class: "am-tiles" }), table = h("div", { class: "am-tw" }), shirts = h("p", { class: "am-muted" });
     function tile(n, label) { return h("div", { class: "am-tile" }, h("b", { text: String(n) }), h("span", { text: label })); }
@@ -368,15 +281,20 @@
       var a = h("a", { href: URL.createObjectURL(new Blob(["\ufeff" + csv(list())], { type: "text/csv" })), download: "alumni-meet-2026-responses.csv" });
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } });
-    show(h("div", null, topBar(user.email || "", h("a", { class: "am-link", href: FORM, text: "Back to form" })),
+    show(h("div", null, topBar(email(), h("a", { class: "am-link", href: FORM, text: "Back to form" })),
       h("h2", { class: "am-title", text: "Alumni Meet 2026 responses" }), tiles, shirts, h("div", { class: "am-filters" }, search, yearSel, attSel, dl), st.canEdit ? h("p", null, h("button", { class: "am-btn am-add", type: "button", text: "+ Add a response", onclick: function () { adminForm(null); } })) : null, table));
     fill();
   }
 
   /* ---------- start ---------- */
-  if (!API || !CLIENT) return show(h("div", { class: "am-card" }, msg("Missing data-api or data-client.", "bad")));
-  var t = savedToken();
-  if (t) { st.token = t; if (!t.session) makeSession(t.raw).then(function (n) { if (n) st.token = n; }); } // quietly move an older sign-in to a 30 day session
-  if (MODE === "responses") { if (t) loadResponses(); else signedOutResponses(""); }
-  else { head.appendChild(welcome()); if (t) loadMe(); else picker(); }
+  if (!Auth) return show(h("div", { class: "am-card" }, msg("Sign-in could not load (signin.js is missing from the theme). Please reload the page.", "bad")));
+  // signed out here or in another tab, the sign-in ended, or someone signed in in another tab
+  Auth.onChange(function (u, why) {
+    var note = why === "expired" ? "Your sign-in expired. Please sign in again." : why === "other-tab" && !u ? "You signed out in another tab." : "";
+    if (!u) { st.me = null; st.pick = null; return MODE === "responses" ? signedOutResponses(note) : picker(note); }
+    if (why === "other-tab") { if (MODE === "responses") loadResponses(); else loadMe(); } // a sign-in on this page continues through onDone
+  });
+  var signed = !!Auth.token(); // the saved 30 day sign-in, read synchronously by signin.js
+  if (MODE === "responses") { if (signed) loadResponses(); else signedOutResponses(""); }
+  else { head.appendChild(welcome()); if (signed) loadMe(); else picker(); }
 })();

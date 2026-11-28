@@ -168,3 +168,6 @@
 .jc-txt,.jc-ico{min-height:44px;min-width:64px;padding:8px 14px;border:0;background:none;color:#25d366;font:inherit;font-size:18px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .jc-ico{color:#fff;font-size:28px;line-height:1}
 .jc-txt:focus-visible,.jc-ico:focus-visible{outline:2px solid #25d366;outline-offset:2px;border-radius:8px}
+/* profile search and "New Alumni Registration" (drawn by signin.js, styled there with the same --jb-* tokens) */
+#jnv-login .jnv-ps{margin-top:4px}
+#jnv-login .jnv-ps-gbtn{margin:16px 0 4px}

@@ -877,7 +877,14 @@ function jnvSignIn(btn) {
     google.accounts.id.initialize({
       client_id: CLIENT, auto_select: false, cancel_on_tap_outside: false, login_hint: hint,
       callback: function(r) {
-        // the server decides whether this Gmail owns this profile
+        // signin.js (the site-wide sign-in): the server checks that this Gmail owns this profile, then makes the 30 day session
+        if (window.JNVAuth && JNVAuth.signInWithProfile) {
+          err.hidden = true;
+          JNVAuth.signInWithProfile({ batch: ele.Batch, name: ele.Name }, r.credential)
+            .then(function() { location.reload(); }, function(e) { err.textContent = e.message || ("Please use " + hint + "."); err.hidden = false; });
+          return;
+        }
+        // older theme without signin.js: the server decides whether this Gmail owns this profile
         fetch(API + "/api/me", { headers: { Authorization: "Bearer " + r.credential } })
           .then(function(x) { return x.ok ? x.json() : null; })
           .then(function(j) {

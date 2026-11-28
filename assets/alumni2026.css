@@ -27,7 +27,7 @@
 .am-ok{border-left:4px solid #2e9e5b}.am-warn{border-left:4px solid var(--am-gold)}.am-bad{border-left:4px solid #d64545}
 
 /* batch, names, register bar */
-.am-input{display:block;width:100%;min-height:46px;padding:0 12px;border:1px solid var(--am-line);border-radius:12px;background:var(--am-bg2);color:var(--am-text);font:inherit;font-size:15px}
+.am-input{display:block;width:100%;min-height:46px;padding:0 12px;border:1px solid var(--am-line);border-radius:12px;background:var(--am-bg2);color:var(--am-text);font:inherit;font-size:16px}
 textarea.am-input{padding:10px 12px}
 .am-input:focus{outline:2px solid var(--am-accent);outline-offset:1px}
 .am-input[readonly]{opacity:.75}

@@ -174,6 +174,9 @@
   }
 
   var ADMIN_URL = root.dataset.admin || "/p/admin.html";
+  // #meet: the Alumni Meet form sent the person here to sign in; after sign-in go back to the form
+  var goMeet = (location.hash || "") === "#meet";
+  var MEET_URL = root.dataset.meet || "/p/alumni2026.html";
   var editMatch = /^#edit=([0-9a-f-]{36})$/i.exec(location.hash || "");
   var startHash = /^#(edit|photos|register)$/i.test(location.hash || "") ? location.hash.slice(1).toLowerCase() : ""; // used once, after sign-in
   var state = { editId: editMatch ? editMatch[1].toLowerCase() : null, target: null, notAdmin: false, dirty: false, pushed: false, skipPop: false, afterSave: null, flash: "", claim: null, registering: false, me: null, photoBlob: null, photoUrl: null, ownPhotoUrl: null, editing: false, busy: false };
@@ -208,12 +211,12 @@
     var box = h("div");
     show(h("div", { class: "jl-card" },
       h("h2", { text: "Alumni sign in" }),
-      h("p", { class: "jl-muted", text: "Find your profile to see and update your alumni details. You do not need to sign in to browse the site." }),
+      h("p", { class: "jl-muted", text: goMeet ? "Sign in to open the Alumni Meet 2026 form. Find your profile below." : "Find your profile to see and update your alumni details. You do not need to sign in to browse the site." }),
       note ? h("p", { class: "jl-msg jl-warn", text: note }) : null,
       box));
     Auth.picker(box, {
       intro: "Type your name (or your full Gmail) and press Search. Pick your profile, then confirm with the Google account linked to it.",
-      onDone: function (res) { state.claim = res.linked ? null : res.pick; load(); },
+      onDone: function (res) { if (goMeet) { location.href = MEET_URL; return; } state.claim = res.linked ? null : res.pick; load(); },
       onRegister: renderRegister
     });
   }
@@ -223,7 +226,7 @@
     show(h("div", { class: "jl-card" }, box));
     Auth.registerView(box, {
       onBack: function () { renderSignedOut(""); },
-      onDone: function () { state.registering = true; load(); }
+      onDone: function () { if (goMeet) { location.href = MEET_URL; return; } state.registering = true; load(); }
     });
   }
 
@@ -907,6 +910,7 @@
     }
     if (why === "other-tab" && !(state.editing && state.dirty)) load(); // a sign-in on this page loads through onDone instead
   });
+  if (goMeet && Auth.token()) { location.replace(MEET_URL); return; } // already signed in: straight to the form
   if (Auth.token()) load();
   else if (startHash === "register") { startHash = ""; renderRegister(); }
   else renderSignedOut("");

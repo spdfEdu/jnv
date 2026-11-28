@@ -354,6 +354,7 @@
           avatarEl(p.photo, p.name, 40),
           h("span", { class: "jnv-ps-who" }, h("b", { text: p.name }), h("span", { text: subLine(p) }), live && p.email ? h("span", { text: p.email }) : null)));
       });
+      if (live && o.onRegister) list.appendChild(h("button", { class: "jnv-ps-btn jnv-ps-reg", type: "button", text: "Name not found? Register yourself", onclick: function () { o.onRegister(); } }));
     }
     function run() {
       var q = String(input.value || "").replace(/\s+/g, " ").trim();
@@ -361,10 +362,10 @@
       if (q.indexOf("@") >= 0) { if (!MAIL_RE.test(q)) return say("Type the full Gmail address, like name@gmail.com", true); }
       else if (q.replace(/[^A-Za-z\u00c0-\u024f\u0900-\u0dff]/g, "").length < 3) return say("Type at least 3 letters of your name", true);
       busy(true); say("Searching..."); clear(list);
-      api("/api/search?q=" + encodeURIComponent(q), { auth: false }).then(function (r) {
+      api("/api/search?q=" + encodeURIComponent(q) + (live ? "&lite=1" : ""), { auth: false }).then(function (r) {
         busy(false); last.q = q; last.results = r.results || [];
         draw(last.results);
-        if (r.more) say("Showing the first 10. Add your surname to narrow it down.");
+        if (r.more) say(live ? "Showing the first 60. Type more of the name or pick a batch." : "Showing the first 10. Add your surname to narrow it down.");
       }, function (e) { busy(false); say(e.message, true); });
     }
     function runBatch(b) {

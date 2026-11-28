@@ -371,7 +371,8 @@
       h("button", { class: "jnv-ps-back", type: "button", text: "\u2190 Back to search", onclick: function () { picker(box, o); } }),
       h("div", { class: "jnv-ps-pick" }, avatarEl(p.photo, p.name, 56), h("span", { class: "jnv-ps-who" }, h("b", { text: p.name }), h("span", { text: subLine(p) }))),
       p.linked
-        ? h("p", { class: "jnv-ps-muted", text: "Is this you? Continue with the Google account (Gmail) linked to this profile." })
+        ? (p.email ? h("p", { class: "jnv-ps-muted" }, "Is this you? Continue with ", h("b", { text: p.email }), ".")
+          : h("p", { class: "jnv-ps-muted", text: "Is this you? Continue with the Google account (Gmail) linked to this profile." }))
         : h("p", { class: "jnv-ps-note", text: p.auto ? "No Gmail is linked to this profile yet. Continue with your own Gmail: it will be linked to this profile." : "No Gmail is linked to this profile yet. Continue with your own Gmail and send your details: the admin will check them and link your Gmail to this profile." }),
       gbtn, err);
     clear(box); box.appendChild(card);
@@ -382,7 +383,7 @@
         signInWithProfile(p, cred).then(function (res) {
           if (o.onDone) o.onDone({ me: res.me, linked: res.linked !== false, pick: p });
         }, function (e) { err.textContent = e.message; err.hidden = false; draw(); });
-      }, function () { err.textContent = "Google sign-in could not load. Check your connection and reload the page."; err.hidden = false; }, p.linked ? p.hint : "");
+      }, function () { err.textContent = "Google sign-in could not load. Check your connection and reload the page."; err.hidden = false; }, p.linked ? (p.email || p.hint) : "");
     }
     draw();
   }

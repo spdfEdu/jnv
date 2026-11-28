@@ -81,7 +81,7 @@
     var card = h("div", { class: "am-card" }, box);
     show(card);
     Auth.picker(box, {
-      title: "Find your name", note: note || "",
+      live: true, title: "Find your name", note: note || "",
       intro: "Type your name or your full Gmail and press Search. Tap your name, then sign in with that Gmail.",
       onDone: function (res) { st.pick = { name: res.pick.name, batch: String(res.pick.batch) }; loadMe(); },
       onRegister: registerScreen

@@ -311,10 +311,23 @@
     var list = h("div", { class: "jnv-ps-list" });
     var form = h("form", { class: "jnv-ps-form", role: "search", novalidate: true, onsubmit: function (e) { e.preventDefault(); run(); } }, input, go);
     // "Not finding your name?": choose your batch to see its names (a short list, no photos)
-    var sel = h("select", { class: "jnv-ps-q jnv-ps-sel", "aria-label": "Choose your batch", onchange: function () { if (sel.value) runBatch(sel.value); } }, h("option", { value: "", text: "Or choose your batch" }));
+    var sel = h("select", { class: "jnv-ps-q jnv-ps-sel", "aria-label": "Choose your batch", onchange: function () { if (sel.value) runBatch(sel.value); else { batchList = null; clear(list); say(""); } } }, h("option", { value: "", text: "Or choose your batch" }));
     api("/api/meet/batches", { auth: false }).then(function (r) {
       (r.batches || []).forEach(function (b) { sel.appendChild(h("option", { value: String(b.batch), text: "Batch " + b.batch })); });
     }, function () {});
+    // live mode (Alumni Meet): typing filters the chosen batch, or searches after 3 letters without pressing Enter
+    var live = !!o.live, batchList = null, timer = null;
+    function filterBatch(q) {
+      q = String(q || "").toLowerCase();
+      draw(!q ? batchList : batchList.filter(function (p) { return (p.name + " " + (p.email || "")).toLowerCase().indexOf(q) >= 0; }));
+    }
+    if (live) input.addEventListener("input", function () {
+      clearTimeout(timer);
+      var q = String(input.value || "").replace(/\s+/g, " ").trim();
+      if (batchList) return filterBatch(q);
+      if (q.length < 3 || q.indexOf("@") >= 0) return; // a Gmail is searched with Enter
+      timer = setTimeout(run, 500);
+    });
     var reg = o.onRegister ? h("button", { class: "jnv-ps-btn jnv-ps-regbtn", type: "button", text: "New Alumni Registration", onclick: function () { o.onRegister(); } }) : null;
     var wrap = h("div", { class: "jnv-ps" },
       o.title ? h("h2", { class: "jnv-ps-title", text: o.title }) : null,
@@ -339,11 +352,12 @@
       results.forEach(function (p) {
         list.appendChild(h("button", { class: "jnv-ps-item", type: "button", onclick: function () { verify(box, p, o); } },
           avatarEl(p.photo, p.name, 40),
-          h("span", { class: "jnv-ps-who" }, h("b", { text: p.name }), h("span", { text: subLine(p) }))));
+          h("span", { class: "jnv-ps-who" }, h("b", { text: p.name }), h("span", { text: subLine(p) }), live && p.email ? h("span", { text: p.email }) : null)));
       });
     }
     function run() {
       var q = String(input.value || "").replace(/\s+/g, " ").trim();
+      if (batchList) return filterBatch(q);
       if (q.indexOf("@") >= 0) { if (!MAIL_RE.test(q)) return say("Type the full Gmail address, like name@gmail.com", true); }
       else if (q.replace(/[^A-Za-z\u00c0-\u024f\u0900-\u0dff]/g, "").length < 3) return say("Type at least 3 letters of your name", true);
       busy(true); say("Searching..."); clear(list);
@@ -356,8 +370,9 @@
     function runBatch(b) {
       busy(true); say("Loading..."); clear(list);
       api("/api/search?batch=" + encodeURIComponent(b), { auth: false }).then(function (r) {
-        busy(false); last.q = ""; last.results = r.results || []; input.value = "";
-        draw(last.results);
+        busy(false); last.q = ""; last.results = r.results || [];
+        if (live) { batchList = last.results; filterBatch(input.value); return; }
+        input.value = ""; draw(last.results);
       }, function (e) { busy(false); say(e.message, true); });
     }
     if (last.results && last.q === input.value) draw(last.results);
